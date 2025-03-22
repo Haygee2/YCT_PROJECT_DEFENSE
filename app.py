@@ -15,6 +15,7 @@ import time  # Add this import for the delay
 from dotenv import load_dotenv  # Add this import
 from chatbot import chat_with_ai  # Add this import
 import asyncio  # Add this import
+from flask import Flask  # Add this import
 
 # Load environment variables from .env file
 load_dotenv()
@@ -568,3 +569,12 @@ def submit_login():
 
 if __name__ == "__main__":
     main()
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Welcome to the Flask application!"
+
+if __name__ == "__main__":
+    app.run(debug=True)
