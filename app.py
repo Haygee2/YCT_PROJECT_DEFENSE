@@ -14,6 +14,7 @@ from datetime import datetime
 import time  # Add this import for the delay
 from dotenv import load_dotenv  # Add this import
 from chatbot import chat_with_ai  # Add this import
+import asyncio  # Add this import
 
 # Load environment variables from .env file
 load_dotenv()
@@ -306,6 +307,12 @@ def send_email_notification(to_email, subject, body):
         print(f"Failed to send email: {e}")
 
 def main():
+    # Ensure the event loop is properly initialized
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
     st.title("YABA COLLEGE OF TECHNOLOGY COMPUTER ENGINEERING DEPARTMENT")
 
     # Sidebar for navigation and logout
