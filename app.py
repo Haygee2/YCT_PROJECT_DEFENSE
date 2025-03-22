@@ -17,7 +17,8 @@ from chatbot import chat_with_ai  # Add this import
 import asyncio  # Add this import
 
 # Load environment variables from .env file
-load_dotenv()
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(dotenv_path)
 
 # Debugging: Print the current working directory and list files
 print(f"Current working directory: {os.getcwd()}")
