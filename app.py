@@ -19,8 +19,16 @@ import asyncio  # Add this import
 # Load environment variables from .env file
 load_dotenv()
 
+# Debugging: Print the current working directory and list files
+print(f"Current working directory: {os.getcwd()}")
+print(f"Files in the current directory: {os.listdir(os.getcwd())}")
+
+# Verify if the environment variable is loaded
+api_key = os.getenv('OPENROUTER_API_KEY')
+print(f"OPENROUTER_API_KEY: {api_key}")
+
 # Set up OpenAI API (replace with your API key)
-OPENAI_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENAI_API_KEY = api_key
 if not OPENAI_API_KEY:
     st.error("API key not found. Please set the OPENROUTER_API_KEY in the .env file.")
 else:
