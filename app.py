@@ -27,6 +27,12 @@ print(f"Files in the current directory: {os.listdir(os.getcwd())}")
 api_key = os.getenv('OPENROUTER_API_KEY')
 print(f"OPENROUTER_API_KEY: {api_key}")
 
+# Check if the API key is loaded correctly
+if not api_key:
+    print("Error: OPENROUTER_API_KEY not found in environment variables.")
+else:
+    print("OPENROUTER_API_KEY loaded successfully.")
+
 # Set up OpenAI API (replace with your API key)
 OPENAI_API_KEY = api_key
 if not OPENAI_API_KEY:
