@@ -21,10 +21,13 @@ load_dotenv()
 
 # Set up OpenAI API (replace with your API key)
 OPENAI_API_KEY = os.getenv("OPENROUTER_API_KEY")
-client = OpenAI(
-    base_url="https://api.openai.com/v1",
-    api_key=OPENAI_API_KEY
-) if OPENAI_API_KEY else None
+if not OPENAI_API_KEY:
+    st.error("API key not found. Please set the OPENROUTER_API_KEY in the .env file.")
+else:
+    client = OpenAI(
+        base_url="https://api.openai.com/v1",
+        api_key=OPENAI_API_KEY
+    )
 
 # Set the path to Tesseract-OCR executable
 if os.name == 'nt':  # Windows
