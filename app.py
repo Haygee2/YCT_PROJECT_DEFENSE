@@ -35,14 +35,14 @@ else:
     print("OPENROUTER_API_KEY loaded successfully.")
 
 # Set up OpenAI API (replace with your API key)
-OPENAI_API_KEY = api_key
-if not OPENAI_API_KEY:
+OPENROUTER_API_KEY = api_key
+if not OPENROUTER_API_KEY:
     st.error("API key not found. Please set the OPENROUTER_API_KEY in the .env file.")
 else:
     try:
         client = OpenAI(
             base_url="https://api.openai.com/v1",
-            api_key=OPENAI_API_KEY
+            api_key=OPENROUTER_API_KEY
         )
         print("OpenAI client initialized successfully.")
     except Exception as e:
@@ -120,6 +120,7 @@ def execute_query(query, params=(), fetchone=False, fetchall=False):
             return None
     except sqlite3.Error as e:
         st.error(f"Database error: {e}")
+        print(f"Database error: {e}")  # Improved logging
         return None
 
 def get_student_info(matric_number):
