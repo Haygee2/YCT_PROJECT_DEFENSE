@@ -1,7 +1,6 @@
-import requests
-import json
 import os
 from dotenv import load_dotenv
+import openai
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,25 +18,26 @@ def chat_with_ai(query):
     conversation_history.append({"role": "user", "content": query})
 
     try:
-        response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
+        client = openai.OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_API_KEY,
+        )
+
+        response = client.chat.completions.create(
+            extra_headers={
                 "HTTP-Referer": "<YOUR_SITE_URL>",  # Optional. Site URL for rankings on openrouter.ai.
                 "X-Title": "<YOUR_SITE_NAME>",  # Optional. Site title for rankings on openrouter.ai.
             },
-            data=json.dumps({
-                "model": "deepseek/deepseek-r1:free",  # Updated model
-                "messages": conversation_history,
-            })
+            extra_body={},
+            model="deepseek/deepseek-r1:free",
+            messages=conversation_history
         )
-        response_data = response.json()
-        ai_response = response_data['choices'][0]['message']['content'].strip()
+
+        ai_response = response.choices[0].message.content.strip()
 
         # Add AI response to conversation history
         conversation_history.append({"role": "assistant", "content": ai_response})
 
         return ai_response
     except Exception as e:
-        return f"An error occurred: {e}"
+        return f"Error: {e}"

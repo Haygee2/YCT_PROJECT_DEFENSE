@@ -32,10 +32,15 @@ OPENAI_API_KEY = api_key
 if not OPENAI_API_KEY:
     st.error("API key not found. Please set the OPENROUTER_API_KEY in the .env file.")
 else:
-    client = OpenAI(
-        base_url="https://api.openai.com/v1",
-        api_key=OPENAI_API_KEY
-    )
+    try:
+        client = OpenAI(
+            base_url="https://api.openai.com/v1",
+            api_key=OPENAI_API_KEY
+        )
+        print("OpenAI client initialized successfully.")
+    except Exception as e:
+        st.error(f"Failed to initialize OpenAI client: {e}")
+        print(f"Failed to initialize OpenAI client: {e}")
 
 # Set the path to Tesseract-OCR executable
 if os.name == 'nt':  # Windows
