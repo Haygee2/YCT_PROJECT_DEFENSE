@@ -58,13 +58,6 @@ if os.name == 'nt':  # Windows
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
     os.environ["TESSDATA_PREFIX"] = os.path.join("C:", "Program Files", "Tesseract-OCR", "tessdata")
 
-    
-# Admin authentication (hardcoded for now)
-ADMINS = {"admin": "password"}  # Change credentials as needed
-
-# Student authentication (hardcoded for now)
-STUDENTS = {"student1": "password1"}  # Change credentials as needed
-
 # Database setup
 DB_PATH = "students.db"
 FACE_ENCODINGS_DIR = "face_encodings"
@@ -444,14 +437,10 @@ def main():
     if "user_role" not in st.session_state:
         st.session_state.user_role = None
 
-    if st.session_state.logged_in:
-        if st.sidebar.button("Log Out", key="logout_sidebar"):
-            st.session_state.logged_in = False
-            st.session_state.verified_student = None
-            st.session_state.user_role = None
-            st.experimental_set_query_params(logged_in=False)
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ["Login", "Sign Up", "Admin Panel", "Manage Students", "Analytics Dashboard", "Student Panel", "AI Study Helper"], key="main_nav")
 
-    if not st.session_state.logged_in:
+    if page == "Login":
         st.subheader("Login")
         role = st.radio("Select Role:", ["Admin", "Student"], key="role_radio")
         username = st.text_input("Username:", key="username_input")
@@ -469,11 +458,9 @@ def main():
                     st.session_state.verified_student = (username, password)
             else:
                 st.error("Invalid Credentials")
-        if st.button("Sign Up", key="signup_button"):
-            st.session_state.show_signup = True
         st.stop()
 
-    if st.session_state.get("show_signup", False):
+    if page == "Sign Up":
         st.subheader("Sign Up")
         new_username = st.text_input("New Username:", key="new_username_input")
         new_password = st.text_input("New Password:", type="password", key="new_password_input")
@@ -485,7 +472,13 @@ def main():
             else:
                 store_user(new_username, new_password, new_role)
                 st.success("Account created successfully! You can now log in.")
-                st.session_state.show_signup = False
+
+    if st.session_state.logged_in:
+        if st.sidebar.button("Log Out", key="logout_sidebar"):
+            st.session_state.logged_in = False
+            st.session_state.verified_student = None
+            st.session_state.user_role = None
+            st.experimental_set_query_params(logged_in=False)
 
     if st.session_state.user_role == "Admin":
         page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
