@@ -153,6 +153,9 @@ def extract_text_from_image(image):
     """Extract text from an image using Tesseract OCR."""
     try:
         return pytesseract.image_to_string(image)
+    except pytesseract.TesseractNotFoundError:
+        st.error("Tesseract is not installed or it's not in your PATH. Please install Tesseract OCR and try again.")
+        return "OCR Error: Tesseract is not installed or it's not in your PATH."
     except Exception as e:
         return f"OCR Error: {e}"
 
