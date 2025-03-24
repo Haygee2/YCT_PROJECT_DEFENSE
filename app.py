@@ -438,16 +438,8 @@ def main():
                         st.subheader("Documents")
                         for doc in documents:
                             doc_path = os.path.join(student[2], doc)
-                            if doc.endswith('.pdf'):
-                                with open(doc_path, "rb") as file:
-                                    st.download_button(
-                                        label=f"Download {doc}",
-                                        data=file,
-                                        file_name=doc,
-                                        mime="application/pdf"
-                                    )
-                            else:
-                                st.image(doc_path, caption=doc)
+                            with open(doc_path, "r", encoding="utf-8") as file:
+                                st.text_area(f"Content of {doc}", file.read(), height=300)
                     else:
                         st.info("No documents found for this student.")
                     
@@ -540,25 +532,8 @@ def main():
                     if selected_doc:
                         doc_path = os.path.join(student[2], selected_doc)
                         if os.path.exists(doc_path):
-                            if selected_doc.endswith('.pdf'):
-                                # For PDFs, show a download button
-                                with open(doc_path, "rb") as file:
-                                    st.download_button(
-                                        label="Download PDF",
-                                        data=file,
-                                        file_name=selected_doc,
-                                        mime="application/pdf",
-                                        key="download_pdf_button"
-                                    )
-                                # Check if there's a text version
-                                txt_path = doc_path.replace('.pdf', '.txt')
-                                if os.path.exists(txt_path):
-                                    with open(txt_path, "r", encoding="utf-8") as f:
-                                        txt_content = f.read()
-                                        st.text_area("Extracted Text", txt_content, height=300, key="extracted_text")
-                            else:
-                                # For images, display them
-                                st.image(doc_path, caption=selected_doc)
+                            with open(doc_path, "r", encoding="utf-8") as file:
+                                st.text_area(f"Content of {selected_doc}", file.read(), height=300)
                 else:
                     st.info("No documents found for your account.")
                 
