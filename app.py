@@ -92,6 +92,7 @@ def init_db():
                             document_name TEXT,
                             version INTEGER,
                             file_path TEXT,
+                            text_file_path TEXT,
                             timestamp TEXT)''')
         
         # Migration logic to add the email column if it doesn't exist
@@ -99,6 +100,13 @@ def init_db():
         columns = [column[1] for column in cursor.fetchall()]
         if "email" not in columns:
             cursor.execute("ALTER TABLE students ADD COLUMN email TEXT")
+            conn.commit()
+        
+        # Migration logic to add the text_file_path column if it doesn't exist
+        cursor.execute("PRAGMA table_info(document_versions)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if "text_file_path" not in columns:
+            cursor.execute("ALTER TABLE document_versions ADD COLUMN text_file_path TEXT")
             conn.commit()
 
 # Call the init_db function to ensure the database is initialized
@@ -154,14 +162,37 @@ def get_student_folder(matric_number, name):
         store_student(matric_number, name, folder_path)  # Store in DB
         return folder_path
 
+def preprocess_image(image):
+    """Preprocess the image for better OCR results."""
+    # Convert to grayscale
+    gray = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2GRAY)
+    
+    # Resize the image
+    scale_percent = 150  # Percent of original size
+    width = int(gray.shape[1] * scale_percent / 100)
+    height = int(gray.shape[0] * scale_percent / 100)
+    dim = (width, height)
+    resized = cv2.resize(gray, dim, interpolation=cv2.INTER_AREA)
+    
+    # Apply binary thresholding
+    _, thresh = cv2.threshold(resized, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Denoise the image
+    denoised = cv2.fastNlMeansDenoising(thresh, None, 30, 7, 21)
+    
+    # Sharpen the image
+    kernel = np.array([[0, -1, 0], [-1, 5,-1], [0, -1, 0]])
+    sharpened = cv2.filter2D(denoised, -1, kernel)
+    
+    return Image.fromarray(sharpened)
+
 def extract_text_from_image(image):
     """Extract text from an image using Tesseract OCR."""
     try:
-        # Preprocess the image if necessary
-        if image.mode != 'L':
-            image = image.convert('L')  # Convert to grayscale
-
-        return pytesseract.image_to_string(image)
+        # Preprocess the image
+        preprocessed_image = preprocess_image(image)
+        
+        return pytesseract.image_to_string(preprocessed_image)
     except pytesseract.TesseractNotFoundError:
         st.error("Tesseract is not installed or it's not in your PATH. Please install Tesseract OCR and try again.")
         return "OCR Error: Tesseract is not installed or it's not in your PATH."
@@ -209,17 +240,52 @@ def save_document(folder, file, matric_number):
         txt_file.write(text)
 
     # Save document version
-    save_document_version(matric_number, file.name, text_file_path)
+    save_document_version(matric_number, file.name, file_path, text_file_path)
 
-    return text_file_path
+    return file_path, text_file_path
 
-def save_document_version(matric_number, document_name, file_path):
+def update_document(folder, file, matric_number):
+    """Update an existing document (PDF or image) and extract text if necessary."""
+    file_path = os.path.join(folder, file.name)
+
+    file_content = file.read()  # Read file content into memory
+
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+
+    # Extract text if it's a PDF or image
+    text = ""
+    if file.name.endswith(".pdf"):
+        with st.spinner('Processing PDF document...'):
+            images = pdf_to_images(file_path)
+            text = "".join(extract_text_from_image(img) for img in images)
+    elif file.name.lower().endswith(('.jpg', '.jpeg', '.png')):
+        image = Image.open(file_path)
+        text = extract_text_from_image(image)
+
+    # Save extracted text to a .txt file
+    text_file_path = file_path.rsplit('.', 1)[0] + ".txt"
+    with open(text_file_path, "w", encoding="utf-8") as txt_file:
+        txt_file.write(text)
+
+    # Save document version
+    save_document_version(matric_number, file.name, file_path, text_file_path)
+
+    return file_path, text_file_path
+
+def get_latest_document_version(matric_number, document_name):
+    """Get the latest version number of a document for a student."""
+    query = '''SELECT MAX(version) FROM document_versions WHERE matric_number = ? AND document_name = ?'''
+    result = execute_query(query, (matric_number, document_name), fetchone=True)
+    return result[0] if result[0] is not None else 0
+
+def save_document_version(matric_number, document_name, file_path, text_file_path):
     """Save a new version of the document."""
     version = get_latest_document_version(matric_number, document_name) + 1
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    query = '''INSERT INTO document_versions (matric_number, document_name, version, file_path, timestamp)
-               VALUES (?, ?, ?, ?, ?)'''
-    execute_query(query, (matric_number, document_name, version, file_path, timestamp))
+    query = '''INSERT INTO document_versions (matric_number, document_name, version, file_path, text_file_path, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?)'''
+    execute_query(query, (matric_number, document_name, version, file_path, text_file_path, timestamp))
 
 def get_latest_document_version(matric_number, document_name):
     """Get the latest version number of a document."""
@@ -302,13 +368,13 @@ def submit_query():
     st.session_state.submit_query = True
 
 def list_student_documents(folder):
-    """List all text documents in the student's folder."""
+    """List all documents (original and text) in the student's folder."""
     if not os.path.exists(folder):
         return []
     
     documents = []
     for file in os.listdir(folder):
-        if file.endswith('.txt'):
+        if file.endswith(('.txt', '.pdf', '.jpg', '.jpeg', '.png')):
             documents.append(file)
     
     return documents
@@ -415,7 +481,7 @@ def main():
             if admin_matric and admin_name and doc_file:
                 with st.spinner('Saving document...'):
                     folder = get_student_folder(admin_matric, admin_name)
-                    save_document(folder, doc_file, admin_matric)
+                    file_path, text_file_path = save_document(folder, doc_file, admin_matric)
                     st.success(f"Data saved for {admin_name} (Matric: {admin_matric}).")
                     log_activity(st.session_state.user_role, f"Uploaded document for {admin_matric}")
                     if admin_email:
@@ -449,10 +515,37 @@ def main():
                     documents = list_student_documents(student[2])
                     if documents:
                         st.subheader("Documents")
-                        for doc in documents:
-                            doc_path = os.path.join(student[2], doc)
-                            with open(doc_path, "r", encoding="utf-8") as file:
-                                st.text_area(f"Content of {doc}", file.read(), height=300)
+                        selected_doc = st.selectbox("Select a document to view:", documents, key="select_doc")
+                        if selected_doc:
+                            doc_path = os.path.join(student[2], selected_doc)
+                            if selected_doc.endswith('.txt'):
+                                if os.path.exists(doc_path):
+                                    if st.button("Show Document", key="show_doc_button"):
+                                        with open(doc_path, "r", encoding="utf-8") as file:
+                                            st.text_area(f"Content of {selected_doc}", file.read(), height=300)
+                            update_doc_file = st.file_uploader("Update Document (Image or PDF)", type=["jpg", "png", "pdf"], key="update_doc_file")
+                            if st.button("Update Document", key="update_doc_button"):
+                                if update_doc_file:
+                                    with st.spinner('Updating document...'):
+                                        file_path, text_file_path = update_document(student[2], update_doc_file, matric_number)
+                                        st.success(f"Document updated for {student[1]} (Matric: {matric_number}).")
+                                        log_activity(st.session_state.user_role, f"Updated document for {matric_number}")
+                                else:
+                                    st.error("Please upload a document to update.")
+                            if not selected_doc.endswith('.txt'):
+                                st.download_button(
+                                    label="Download Original Document",
+                                    data=open(doc_path, "rb").read(),
+                                    file_name=selected_doc,
+                                    mime="application/octet-stream"
+                                )
+                            if selected_doc.endswith('.txt'):
+                                st.download_button(
+                                    label="Download Text Document",
+                                    data=open(doc_path, "rb").read(),
+                                    file_name=selected_doc,
+                                    mime="text/plain"
+                                )
                     else:
                         st.info("No documents found for this student.")
                     
@@ -544,9 +637,25 @@ def main():
                     
                     if selected_doc:
                         doc_path = os.path.join(student[2], selected_doc)
-                        if os.path.exists(doc_path):
-                            with open(doc_path, "r", encoding="utf-8") as file:
-                                st.text_area(f"Content of {selected_doc}", file.read(), height=300)
+                        if selected_doc.endswith('.txt'):
+                            if os.path.exists(doc_path):
+                                if st.button("Show Document", key="show_doc_button"):
+                                    with open(doc_path, "r", encoding="utf-8") as file:
+                                        st.text_area(f"Content of {selected_doc}", file.read(), height=300)
+                        if not selected_doc.endswith('.txt'):
+                            st.download_button(
+                                label="Download Original Document",
+                                data=open(doc_path, "rb").read(),
+                                file_name=selected_doc,
+                                mime="application/octet-stream"
+                            )
+                        if selected_doc.endswith('.txt'):
+                            st.download_button(
+                                label="Download Text Document",
+                                data=open(doc_path, "rb").read(),
+                                file_name=selected_doc,
+                                mime="text/plain"
+                            )
                 else:
                     st.info("No documents found for your account.")
                 
