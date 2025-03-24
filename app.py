@@ -155,11 +155,16 @@ def get_student_folder(matric_number, name):
 def extract_text_from_image(image):
     """Extract text from an image using Tesseract OCR."""
     try:
+        # Preprocess the image if necessary
+        if image.mode != 'L':
+            image = image.convert('L')  # Convert to grayscale
+
         return pytesseract.image_to_string(image)
     except pytesseract.TesseractNotFoundError:
         st.error("Tesseract is not installed or it's not in your PATH. Please install Tesseract OCR and try again.")
         return "OCR Error: Tesseract is not installed or it's not in your PATH."
     except Exception as e:
+        st.error(f"OCR Error: {e}")
         return f"OCR Error: {e}"
 
 def pdf_to_images(pdf_path):
