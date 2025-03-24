@@ -355,20 +355,46 @@ def verify_matric_number(matric_number):
         print("Matric number not found!")
         return None
 
+def ai_extract_text(image):
+    """Extract text from an image using AI."""
+    try:
+        response = client.Completions.create(
+            model="text-davinci-003",
+            prompt="Extract the text from this image: " + image,
+            max_tokens=1000
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        st.error(f"AI Text Extraction Error: {e}")
+        return f"AI Text Extraction Error: {e}"
+
 def ai_prompt_page():
     """AI Study Helper Page."""
     st.title("AI Study Helper")
     
     # Sidebar for navigation within the AI Study Helper
     st.sidebar.title("AI Study Helper Navigation")
-    page = st.sidebar.radio("Go to", ["Ask a Question"], key="ai_nav")  # Removed "Previous Queries"
+    page = st.sidebar.radio("Go to", ["Ask a Question", "Extract Text from Image"], key="ai_nav")
     
     if page == "Ask a Question":
         st.header("Ask a Question")
-        query = st.text_area("What can I help you with today:", height=150, key="query_input", on_change=submit_query)  # Increased height and added on_change
+        query = st.text_area("What can I help you with today:", height=150, key="query_input", on_change=submit_query)
         if st.button("Submit") or st.session_state.get("submit_query", False):
             response = chat_with_ai(query)
-            st.text_area("AI Response:", value=response, height=350, key="response_output")  # Increased height
+            st.text_area("AI Response:", value=response, height=350, key="response_output")
+    
+    if page == "Extract Text from Image":
+        st.header("Extract Text from Image")
+        uploaded_file = st.file_uploader("Upload an image file", type=["jpg", "jpeg", "png", "pdf"], key="image_file")
+        if uploaded_file:
+            if uploaded_file.name.endswith(".pdf"):
+                images = pdf_to_images(uploaded_file)
+                extracted_text = "".join(ai_extract_text(img) for img in images)
+            else:
+                image = Image.open(uploaded_file)
+                extracted_text = ai_extract_text(image)
+            
+            st.text_area("Extracted Text:", value=extracted_text, height=350, key="extracted_text_output")
 
 def submit_query():
     st.session_state.submit_query = True
