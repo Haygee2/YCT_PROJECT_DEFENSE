@@ -51,12 +51,12 @@ else:
 
 # Set the path to Tesseract-OCR executable
 if os.name == 'nt':  # Windows
-    tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+    tesseract_cmd = os.path.join("C:", "Program Files", "Tesseract-OCR", "tesseract.exe")
     if not os.path.exists(tesseract_cmd):
         st.error("Tesseract executable not found at the specified path. Please install Tesseract OCR and ensure the path is correct.")
         raise FileNotFoundError("Tesseract executable not found.")
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-    os.environ["TESSDATA_PREFIX"] = r"C:\\Program Files\\Tesseract-OCR\\tessdata"
+    os.environ["TESSDATA_PREFIX"] = os.path.join("C:", "Program Files", "Tesseract-OCR", "tessdata")
 
     
 # Admin authentication (hardcoded for now)
@@ -423,7 +423,6 @@ def main():
 
     st.title("YABA COLLEGE OF TECHNOLOGY COMPUTER ENGINEERING DEPARTMENT")
 
-    # Sidebar for navigation and logout
     st.sidebar.title("Navigation")
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
@@ -443,7 +442,7 @@ def main():
         st.subheader("Login")
         role = st.radio("Select Role:", ["Admin", "Student"], key="role_radio")
         username = st.text_input("Username:", key="username_input")
-        password = st.text_input("Password:", type="password", key="password_input", on_change=submit_login)  # Added on_change
+        password = st.text_input("Password:", type="password", key="password_input", on_change=submit_login)
         
         if st.button("Login", key="login_button") or st.session_state.get("submit_login", False):
             if role == "Admin" and username in ADMINS and ADMINS[username] == password:
@@ -458,12 +457,11 @@ def main():
                 st.success("Student Login Successful!")
                 st.experimental_set_query_params(logged_in=True)
                 log_activity(username, "Student Login")
-                st.session_state.verified_student = (username, STUDENTS[username])  # Set verified student
+                st.session_state.verified_student = (username, STUDENTS[username])
             else:
                 st.error("Invalid Credentials")
-        st.stop()  # Prevents execution of any further code until login is done
+        st.stop()
 
-    # Navigation
     if st.session_state.user_role == "Admin":
         page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
     else:
@@ -549,7 +547,6 @@ def main():
                     else:
                         st.info("No documents found for this student.")
                     
-                    # Form to update student details
                     st.subheader("Update Student Details")
                     new_matric_number = st.text_input("Matric Number:", value=student[0], key="update_matric_number")
                     new_name = st.text_input("Name:", value=student[1], key="update_name")
@@ -562,7 +559,6 @@ def main():
                         if new_email:
                             send_email_notification(new_email, "Student Information Updated", f"Your information has been updated for {new_name} (Matric: {new_matric_number}).")
                     
-                    # Recapture face image
                     camera_index = st.number_input("Enter Camera Index (0 for built-in, 1 for external, etc.):", min_value=0, value=0, step=1, key="camera_index_manage")
                     if st.button("Recapture Face Image", key=f"recapture_face_button_{matric_number}"):
                         capture_face(camera_index, student[2])
@@ -584,7 +580,6 @@ def main():
     if page == "Student Panel" and st.session_state.user_role == "Student":
         st.subheader("Student Panel: Retrieve Information")
         
-        # Method selection
         verification_method = st.radio(
             "Select verification method:",
             ["Matric Number", "Facial Recognition"],
@@ -612,9 +607,7 @@ def main():
                     capture_face(camera_index, student_folder)
                 else:
                     st.error("Please verify your matric number first.")
-                # Here you would add the logic to verify the captured face with stored encodings
 
-        # If student is verified, show their information
         if st.session_state.verified_student:
             matric, name = st.session_state.verified_student
             student = get_student_info(matric)
@@ -625,11 +618,9 @@ def main():
                 st.write(f"Matric Number: {student[0]}")
                 st.write(f"Name: {student[1]}")
                 
-                # Show student's face if available
                 if student[3] and os.path.exists(student[3]):
                     st.image(student[3], caption="Registered Face", width=200)
                 
-                # List student documents
                 documents = list_student_documents(student[2])
                 if documents:
                     st.subheader("Your Documents")
@@ -659,7 +650,6 @@ def main():
                 else:
                     st.info("No documents found for your account.")
                 
-                # Add a clear button to reset verification
                 if st.button("Log Out", key="logout_button"):
                     st.session_state.verified_student = None
                     st.experimental_set_query_params(logged_in=False)
