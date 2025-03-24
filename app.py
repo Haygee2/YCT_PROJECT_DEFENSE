@@ -437,8 +437,13 @@ def main():
     if "user_role" not in st.session_state:
         st.session_state.user_role = None
 
-    st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Login", "Sign Up", "Admin Panel", "Manage Students", "Analytics Dashboard", "Student Panel", "AI Study Helper"], key="main_nav")
+    if not st.session_state.logged_in:
+        page = st.sidebar.radio("Go to", ["Login", "Sign Up"], key="main_nav")
+    else:
+        if st.session_state.user_role == "Admin":
+            page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
+        else:
+            page = st.sidebar.radio("Go to", ["Student Panel", "AI Study Helper"], key="student_nav")
 
     if page == "Login":
         st.subheader("Login")
@@ -479,11 +484,6 @@ def main():
             st.session_state.verified_student = None
             st.session_state.user_role = None
             st.experimental_set_query_params(logged_in=False)
-
-    if st.session_state.user_role == "Admin":
-        page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
-    else:
-        page = st.sidebar.radio("Go to", ["Student Panel", "AI Study Helper"], key="student_nav")
 
     if page == "Admin Panel" and st.session_state.user_role == "Admin":
         st.subheader("Admin Panel: Upload Student Documents")
