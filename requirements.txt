@@ -3,8 +3,8 @@ numpy
 pytesseract
 Pillow
 PyMuPDF
-opencv-python-headless
+cv2
 python-dotenv
 openai
 deepface
-tensorflow-cpu
+tensorflow

@@ -6,11 +6,7 @@ import streamlit as st
 from openai import OpenAI
 from PIL import Image
 import fitz  # PyMuPDF
-try:
-    import cv2
-except ImportError as e:
-    st.error(f"Failed to import OpenCV: {e}")
-    st.stop()
+import cv2
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
