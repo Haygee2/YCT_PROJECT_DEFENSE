@@ -1,6 +1,5 @@
 import os
 import sqlite3
-import numpy as np
 import pytesseract
 import streamlit as st
 from openai import OpenAI
@@ -15,6 +14,7 @@ import time  # Add this import for the delay
 from dotenv import load_dotenv  # Add this import
 from chatbot import chat_with_ai  # Add this import
 import asyncio  # Add this import
+import numpy as np  # Add this import
 
 # Load environment variables from .env file
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
