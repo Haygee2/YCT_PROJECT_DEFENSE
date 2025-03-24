@@ -15,6 +15,9 @@ from dotenv import load_dotenv  # Add this import
 from chatbot import chat_with_ai  # Add this import
 import asyncio  # Add this import
 import numpy as np  # Add this import
+from flask import Flask, request, jsonify  # Add Flask imports
+
+app = Flask(__name__)  # Initialize Flask app
 
 # Load environment variables from .env file
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -414,6 +417,73 @@ def send_email_notification(to_email, subject, body):
     except Exception as e:
         print(f"Failed to send email: {e}")
 
+# Flask route example
+@app.route('/api/student', methods=['GET'])
+def get_student():
+    matric_number = request.args.get('matric_number')
+    if not matric_number:
+        return jsonify({"error": "Matric number is required"}), 400
+    
+    student = get_student_info(matric_number)
+    if student:
+        return jsonify({
+            "matric_number": student[0],
+            "name": student[1],
+            "folder": student[2],
+            "face_image": student[3],
+            "face_encoding_path": student[4],
+            "email": student[5]
+        })
+    else:
+        return jsonify({"error": "Student not found"}), 404
+
+# Flask route to add a student
+@app.route('/api/student', methods=['POST'])
+def add_student():
+    data = request.json
+    required_fields = ["matric_number", "name", "folder"]
+    for field in required_fields:
+        if field not in data:
+            return jsonify({"error": f"{field} is required"}), 400
+    
+    store_student(
+        data["matric_number"],
+        data["name"],
+        data["folder"],
+        data.get("face_image", ""),
+        data.get("face_encoding_path", ""),
+        data.get("email", "")
+    )
+    return jsonify({"message": "Student added successfully"}), 201
+
+# Flask route to update a student
+@app.route('/api/student/<matric_number>', methods=['PUT'])
+def update_student(matric_number):
+    data = request.json
+    student = get_student_info(matric_number)
+    if not student:
+        return jsonify({"error": "Student not found"}), 404
+    
+    update_student_info(
+        matric_number,
+        data.get("name", student[1]),
+        data.get("folder", student[2]),
+        data.get("face_image", student[3]),
+        data.get("face_encoding_path", student[4]),
+        data.get("email", student[5])
+    )
+    return jsonify({"message": "Student updated successfully"}), 200
+
+# Flask route to delete a student
+@app.route('/api/student/<matric_number>', methods=['DELETE'])
+def delete_student(matric_number):
+    student = get_student_info(matric_number)
+    if not student:
+        return jsonify({"error": "Student not found"}), 404
+    
+    execute_query("DELETE FROM students WHERE matric_number = ?", (matric_number,))
+    return jsonify({"message": "Student deleted successfully"}), 200
+
 def main():
     # Ensure the event loop is properly initialized
     try:
@@ -666,6 +736,9 @@ def main():
 
     if page == "AI Study Helper" and st.session_state.user_role == "Student":
         ai_prompt_page()
+
+    # Run Flask app
+    app.run(port=5000, debug=True)
 
 def submit_login():
     st.session_state.submit_login = True
