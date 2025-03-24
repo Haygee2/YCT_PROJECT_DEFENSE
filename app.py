@@ -15,7 +15,6 @@ import time  # Add this import for the delay
 from dotenv import load_dotenv  # Add this import
 from chatbot import chat_with_ai  # Add this import
 import asyncio  # Add this import
-import shutil  # Add this import
 
 # Load environment variables from .env file
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -145,7 +144,10 @@ def get_student_folder(matric_number, name):
     student = get_student_info(matric_number)
     
     if student:
-        return student[2]  # Folder path from database
+        folder_path = student[2]  # Folder path from database
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path, exist_ok=True)
+        return folder_path
     else:
         folder_path = os.path.join("students_data", f"{name}_{matric_number[-3:]}")
         os.makedirs(folder_path, exist_ok=True)
