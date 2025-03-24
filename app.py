@@ -51,11 +51,18 @@ else:
 
 # Set the path to Tesseract-OCR executable
 if os.name == 'nt':  # Windows
-    pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract"
+    tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+    if not os.path.exists(tesseract_cmd):
+        st.error("Tesseract executable not found at the specified path. Please install Tesseract OCR and ensure the path is correct.")
+        raise FileNotFoundError("Tesseract executable not found.")
+    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
     os.environ["TESSDATA_PREFIX"] = r"C:\\Program Files\\Tesseract-OCR\\tessdata"
 else:  # Unix/Linux/Mac
     # Use default system path or set accordingly
-    pass
+    tesseract_cmd = "tesseract"
+    if not shutil.which(tesseract_cmd):
+        st.error("Tesseract is not installed or it's not in your PATH. Please install Tesseract OCR and try again.")
+        raise FileNotFoundError("Tesseract executable not found.")
 
 # Admin authentication (hardcoded for now)
 ADMINS = {"admin": "password"}  # Change credentials as needed
