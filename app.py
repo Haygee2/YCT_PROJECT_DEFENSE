@@ -94,6 +94,10 @@ def init_db():
                             file_path TEXT,
                             text_file_path TEXT,
                             timestamp TEXT)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                            username TEXT PRIMARY KEY,
+                            password TEXT,
+                            role TEXT)''')  # Add users table for sign-up and login
         
         # Migration logic to add the email column if it doesn't exist
         cursor.execute("PRAGMA table_info(students)")
@@ -132,6 +136,15 @@ def execute_query(query, params=(), fetchone=False, fetchall=False):
         st.error(f"Database error: {e}")
         print(f"Database error: {e}")  # Improved logging
         return None
+
+def get_user(username):
+    """Fetch user details by username."""
+    return execute_query("SELECT username, password, role FROM users WHERE username = ?", (username,), fetchone=True)
+
+def store_user(username, password, role):
+    """Stores a new user in the database."""
+    query = '''INSERT INTO users (username, password, role) VALUES (?, ?, ?)'''
+    execute_query(query, (username, password, role))
 
 def get_student_info(matric_number):
     """Fetch student details by matric_number."""
@@ -445,22 +458,34 @@ def main():
         password = st.text_input("Password:", type="password", key="password_input", on_change=submit_login)
         
         if st.button("Login", key="login_button") or st.session_state.get("submit_login", False):
-            if role == "Admin" and username in ADMINS and ADMINS[username] == password:
+            user = get_user(username)
+            if user and user[1] == password and user[2] == role:
                 st.session_state.logged_in = True
-                st.session_state.user_role = "Admin"
-                st.success("Admin Login Successful!")
+                st.session_state.user_role = role
+                st.success(f"{role} Login Successful!")
                 st.experimental_set_query_params(logged_in=True)
-                log_activity(username, "Admin Login")
-            elif role == "Student" and username in STUDENTS and STUDENTS[username] == password:
-                st.session_state.logged_in = True
-                st.session_state.user_role = "Student"
-                st.success("Student Login Successful!")
-                st.experimental_set_query_params(logged_in=True)
-                log_activity(username, "Student Login")
-                st.session_state.verified_student = (username, STUDENTS[username])
+                log_activity(username, f"{role} Login")
+                if role == "Student":
+                    st.session_state.verified_student = (username, password)
             else:
                 st.error("Invalid Credentials")
+        if st.button("Sign Up", key="signup_button"):
+            st.session_state.show_signup = True
         st.stop()
+
+    if st.session_state.get("show_signup", False):
+        st.subheader("Sign Up")
+        new_username = st.text_input("New Username:", key="new_username_input")
+        new_password = st.text_input("New Password:", type="password", key="new_password_input")
+        new_role = st.radio("Select Role:", ["Admin", "Student"], key="new_role_radio")
+        
+        if st.button("Create Account", key="create_account_button"):
+            if get_user(new_username):
+                st.error("Username already exists. Please choose a different username.")
+            else:
+                store_user(new_username, new_password, new_role)
+                st.success("Account created successfully! You can now log in.")
+                st.session_state.show_signup = False
 
     if st.session_state.user_role == "Admin":
         page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
