@@ -180,20 +180,25 @@ def save_document(folder, file, matric_number):
     with open(file_path, "wb") as f:
         f.write(file_content)
 
-    # Extract text if it's a PDF
+    # Extract text if it's a PDF or image
+    text = ""
     if file.name.endswith(".pdf"):
         with st.spinner('Processing PDF document...'):
             images = pdf_to_images(file_path)
             text = "".join(extract_text_from_image(img) for img in images)
-            text_file_path = file_path.replace(".pdf", ".txt")
+    elif file.name.lower().endswith(('.jpg', '.jpeg', '.png')):
+        image = Image.open(file_path)
+        text = extract_text_from_image(image)
 
-            with open(text_file_path, "w", encoding="utf-8") as txt_file:
-                txt_file.write(text)
+    # Save extracted text to a .txt file
+    text_file_path = file_path.rsplit('.', 1)[0] + ".txt"
+    with open(text_file_path, "w", encoding="utf-8") as txt_file:
+        txt_file.write(text)
 
     # Save document version
-    save_document_version(matric_number, file.name, file_path)
+    save_document_version(matric_number, file.name, text_file_path)
 
-    return file_path
+    return text_file_path
 
 def save_document_version(matric_number, document_name, file_path):
     """Save a new version of the document."""
@@ -284,13 +289,13 @@ def submit_query():
     st.session_state.submit_query = True
 
 def list_student_documents(folder):
-    """List all documents in the student's folder."""
+    """List all text documents in the student's folder."""
     if not os.path.exists(folder):
         return []
     
     documents = []
     for file in os.listdir(folder):
-        if file.endswith(('.pdf', '.jpg', '.png', '.jpeg')):
+        if file.endswith('.txt'):
             documents.append(file)
     
     return documents
