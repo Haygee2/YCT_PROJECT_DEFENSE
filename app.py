@@ -526,9 +526,25 @@ def main():
         asyncio.set_event_loop(asyncio.new_event_loop())
 
     st.title("YABA COLLEGE OF TECHNOLOGY COMPUTER ENGINEERING DEPARTMENT")
-    page = st.sidebar.radio("Navigation", ["Login", "Sign Up", "Admin Panel", "Manage Students", "Analytics Dashboard", "Student Panel", "AI Study Helper", "Webcam Stream"], key="main_nav")
+
+    st.sidebar.title("Navigation")
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    if "verified_student" not in st.session_state:
+        st.session_state.verified_student = None
+    if "user_role" not in st.session_state:
+        st.session_state.user_role = None
+
+    if not st.session_state.logged_in:
+        page = st.sidebar.radio("Go to", ["Login", "Sign Up"], key="main_nav")
+    else:
+        if st.session_state.user_role == "Admin":
+            page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard", "Webcam Stream"], key="admin_nav")
+        else:
+            page = st.sidebar.radio("Go to", ["Student Panel", "AI Study Helper", "Webcam Stream"], key="student_nav")
 
     if page == "Login":
+        st.subheader("Login")
         role = st.radio("Select Role:", ["Admin", "Student"], key="role_radio")
         username = st.text_input("Username:", key="username_input")
         password = st.text_input("Password:", type="password", key="password_input", on_change=submit_login)
@@ -573,7 +589,6 @@ def main():
         admin_name = st.text_input("Enter Student Name:", key="admin_name")
         doc_file = st.file_uploader("Upload Document (Image or PDF)", type=["jpg", "png", "pdf"], key="doc_file")
         admin_email = st.text_input("Enter Student Email (for notifications):", key="admin_email")
-        camera_index = st.number_input("Enter Camera Index (0 for built-in, 1 for external, etc.):", min_value=0, value=0, step=1, key="camera_index_admin")
 
         if st.button("Save Document", key="save_doc_button"):
             if admin_matric and admin_name and doc_file:
@@ -658,7 +673,6 @@ def main():
                         if new_email:
                             send_email_notification(new_email, "Student Information Updated", f"Your information has been updated for {new_name} (Matric: {new_matric_number}).")
                     
-                    camera_index = st.number_input("Enter Camera Index (0 for built-in, 1 for external, etc.):", min_value=0, value=0, step=1, key="camera_index_manage")
                     if st.button("Recapture Face Image", key=f"recapture_face_button_{matric_number}"):
                         capture_face_streamlit(student[2])
                         st.success("Face image recaptured successfully.")
