@@ -446,7 +446,58 @@ def send_email_notification(to_email, subject, body):
     except Exception as e:
         print(f"Failed to send email: {e}")
 
+def add_custom_css():
+    """Add custom CSS for a modern and interactive design."""
+    st.markdown("""
+        <style>
+        .main {
+            background-color: #f0f2f6;
+            color: #333;
+        }
+        .sidebar .sidebar-content {
+            background-color: #2e3b4e;
+            color: white;
+        }
+        .sidebar .sidebar-content a {
+            color: white;
+        }
+        .sidebar .sidebar-content a:hover {
+            color: #ff4b4b;
+        }
+        .stButton>button {
+            background-color: #ff4b4b;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+        .stButton>button:hover {
+            background-color: #ff1a1a;
+        }
+        .stTextInput>div>div>input {
+            border: 2px solid #ff4b4b;
+            border-radius: 5px;
+            padding: 10px;
+        }
+        .stTextInput>div>div>input:focus {
+            border-color: #ff1a1a;
+        }
+        .stRadio>div>div>label {
+            font-size: 16px;
+            color: #333;
+        }
+        .stRadio>div>div>div>input:checked+div {
+            background-color: #ff4b4b;
+            color: white;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
 def main():
+    # Add custom CSS
+    add_custom_css()
+
     # Ensure the event loop is properly initialized
     try:
         asyncio.get_running_loop()
