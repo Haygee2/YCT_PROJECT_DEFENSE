@@ -309,7 +309,12 @@ def capture_face_streamlit(student_folder=""):
     st.title("Capture Face Image")
 
     # Select webcam
-    camera_index = st.selectbox("Select Camera", options=[0, 1], format_func=lambda x: f"Camera {x}")
+    if "camera_index" not in st.session_state:
+        st.session_state.camera_index = 0
+    camera_index = st.selectbox("Select Camera", options=[0, 1], index=st.session_state.camera_index, key="camera_select")
+
+    # Update camera index in session state
+    st.session_state.camera_index = camera_index
 
     # Get image from Streamlit camera input
     img_file = st.camera_input("Take a picture", key=f"camera_input_{camera_index}")
