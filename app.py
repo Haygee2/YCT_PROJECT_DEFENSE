@@ -308,8 +308,11 @@ def capture_face_streamlit(student_folder=""):
     """Capture face using Streamlit's camera input."""
     st.title("Capture Face Image")
 
+    # Select webcam
+    camera_index = st.selectbox("Select Camera", options=[0, 1], format_func=lambda x: f"Camera {x}")
+
     # Get image from Streamlit camera input
-    img_file = st.camera_input("Take a picture")
+    img_file = st.camera_input("Take a picture", key=f"camera_input_{camera_index}")
 
     if img_file:
         # Convert to OpenCV format
@@ -324,17 +327,16 @@ def capture_face_streamlit(student_folder=""):
         faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
         if len(faces) > 0:
-            # Save the captured image
-            captured_image_path = os.path.join(student_folder, "captured_face.jpg")
-            cv2.imwrite(captured_image_path, frame)
-            st.success("Face captured successfully!")
-            st.image(captured_image_path, caption="Captured Face", width=700)  # Show the captured face
+            # Display the captured image
+            st.image(frame, caption="Captured Face", channels="BGR", width=700)  # Show the captured face
 
             if st.button("Save"):
+                captured_image_path = os.path.join(student_folder, "captured_face.jpg")
+                cv2.imwrite(captured_image_path, frame)
                 st.success("Face image saved successfully!")
-            if st.button("Cancel"):
-                os.remove(captured_image_path)
-                st.warning("Face image capture canceled.")
+
+            if st.button("Clear"):
+                st.warning("Face image capture cleared.")
         else:
             st.error("No face detected. Please try again.")
 
@@ -598,7 +600,6 @@ def main():
             if admin_matric and admin_name:
                 folder = get_student_folder(admin_matric, admin_name)
                 capture_face_streamlit(folder)
-                st.success(f"Face captured for {admin_name} (Matric: {admin_matric}).")
                 log_activity(st.session_state.user_role, f"Captured face for {admin_matric}")
             else:
                 st.error("Please enter the student's matric number and name.")
@@ -667,7 +668,6 @@ def main():
                     
                     if st.button("Recapture Face Image", key=f"recapture_face_button_{matric_number}"):
                         capture_face_streamlit(student[2])
-                        st.success("Face image recaptured successfully.")
                         log_activity(st.session_state.user_role, f"Recaptured face image for {new_matric_number}")
         else:
             st.info("No students found.")
