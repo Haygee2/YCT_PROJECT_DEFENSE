@@ -298,12 +298,6 @@ def save_document_version(matric_number, document_name, file_path, text_file_pat
                VALUES (?, ?, ?, ?, ?, ?)'''
     execute_query(query, (matric_number, document_name, version, file_path, text_file_path, timestamp))
 
-def get_latest_document_version(matric_number, document_name):
-    """Get the latest version number of a document."""
-    query = '''SELECT MAX(version) FROM document_versions WHERE matric_number = ? AND document_name = ?'''
-    result = execute_query(query, (matric_number, document_name), fetchone=True)
-    return result[0] if result[0] else 0
-
 def capture_face_streamlit(student_folder=""):
     """Capture face using Streamlit's camera input."""
     st.title("Capture Face Image")
