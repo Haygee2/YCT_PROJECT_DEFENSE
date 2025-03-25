@@ -304,7 +304,13 @@ def get_latest_document_version(matric_number, document_name):
     return result[0] if result[0] else 0
 
 def capture_face(camera_index=0, student_folder=""):
-    cap = cv2.VideoCapture(camera_index)
+    # Try different backends for capturing video
+    cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)  # Force V4L2
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)  # Try DirectShow
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(camera_index, cv2.CAP_ANY)  # Let OpenCV choose
+
     if not cap.isOpened():
         st.error(f"Failed to open camera with index {camera_index}. Please ensure the camera is connected and accessible.")
         print(f"Failed to open camera with index {camera_index}.")
