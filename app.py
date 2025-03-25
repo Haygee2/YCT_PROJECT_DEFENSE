@@ -613,7 +613,7 @@ def main():
                     else:
                         st.info("No documents found for this student.")
                     
-                    st.subheader("Update Student Details")
+                   
                     new_matric_number = st.text_input("Matric Number:", value=student[0], key="update_matric_number")
                     new_name = st.text_input("Name:", value=student[1], key="update_name")
                     new_email = st.text_input("Email:", value=student[5], key="update_email")
