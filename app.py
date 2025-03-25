@@ -483,7 +483,7 @@ def main():
                 st.session_state.logged_in = True
                 st.session_state.user_role = role
                 st.success(f"{role} Login Successful!")
-                st.query_params(logged_in=True)
+                st.experimental_set_query_params(logged_in=True)
                 log_activity(username, f"{role} Login")
                 if role == "Student":
                     st.session_state.verified_student = (username, password)
@@ -509,7 +509,7 @@ def main():
             st.session_state.logged_in = False
             st.session_state.verified_student = None
             st.session_state.user_role = None
-            st.query_params(logged_in=False)
+            st.experimental_set_query_params(logged_in=False)
 
     if page == "Admin Panel" and st.session_state.user_role == "Admin":
         st.subheader("Admin Panel: Upload Student Documents")
