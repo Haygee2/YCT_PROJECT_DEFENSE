@@ -301,13 +301,16 @@ def get_latest_document_version(matric_number, document_name):
 
 def capture_face(camera_index=0, student_folder=""):
     cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        st.error(f"Failed to open camera with index {camera_index}. Please ensure the camera is connected and accessible.")
+        return
+
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    face_captured = False
     captured_image_path = os.path.join(student_folder, "captured_face.jpg")
-    
-    st.info("Get ready! Capturing the image in 5 seconds...")
-    time.sleep(5)  # Add a 5-second delay
-    
+    face_captured = False
+
+    st.info("Click 'Capture' to take a picture and 'Save' to save the best picture.")
+
     while True:
         ret, frame = cap.read()
         if not ret or frame is None:
@@ -323,21 +326,23 @@ def capture_face(camera_index=0, student_folder=""):
         # Display the frame in Streamlit
         st.image(frame, channels="BGR", caption="Face Capture")
 
-        if len(faces) > 0:
-            cv2.imwrite(captured_image_path, frame)
-            face_captured = True
-            break
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    
+        if st.button("Capture"):
+            if len(faces) > 0:
+                cv2.imwrite(captured_image_path, frame)
+                face_captured = True
+                st.success("Face captured successfully! Click 'Save' to save the image.")
+            else:
+                st.error("No face detected. Please try again.")
+
+        if st.button("Save"):
+            if face_captured:
+                st.success("Face image saved successfully!")
+                st.image(captured_image_path, caption="Captured Face", width=700)  # Show the captured face
+                break
+            else:
+                st.error("No face image to save. Please capture an image first.")
+
     cap.release()
-    
-    if face_captured:
-        st.success("Face captured successfully!")
-        st.image(captured_image_path, caption="Captured Face", width=700)  # Show the captured face
-    else:
-        st.error("Failed to capture face.")
 
     print("Face capture process completed.")
 
@@ -450,46 +455,62 @@ def add_custom_css():
     """Add custom CSS for a modern and interactive design."""
     st.markdown("""
         <style>
+        /* Main background and text color */
         .main {
-            background-color: #f0f2f6;
-            color: #333;
+            background-color: #1e1e1e;
+            color: #f5f5f5;
         }
+        /* Sidebar styling */
         .sidebar .sidebar-content {
-            background-color: #2e3b4e;
-            color: white;
+            background-color: #2b2b2b;
+            color: #f5f5f5;
         }
         .sidebar .sidebar-content a {
-            color: white;
+            color: #f5f5f5;
         }
         .sidebar .sidebar-content a:hover {
-            color: #ff4b4b;
+            color: #1db954;
         }
+        /* Button styling */
         .stButton>button {
-            background-color: #ff4b4b;
+            background-color: #1db954;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 25px;
             padding: 10px 20px;
             font-size: 16px;
+            transition: background-color 0.3s ease;
         }
         .stButton>button:hover {
-            background-color: #ff1a1a;
+            background-color: #1ed760;
         }
+        /* Text input styling */
         .stTextInput>div>div>input {
-            border: 2px solid #ff4b4b;
-            border-radius: 5px;
+            border: 2px solid #1db954;
+            border-radius: 25px;
             padding: 10px;
+            background-color: #2b2b2b;
+            color: #f5f5f5;
         }
         .stTextInput>div>div>input:focus {
-            border-color: #ff1a1a;
+            border-color: #1ed760;
         }
+        /* Radio button styling */
         .stRadio>div>div>label {
             font-size: 16px;
-            color: #333;
+            color: #f5f5f5;
         }
         .stRadio>div>div>div>input:checked+div {
-            background-color: #ff4b4b;
+            background-color: #1db954;
             color: white;
+        }
+        /* Header styling */
+        h1, h2, h3, h4, h5, h6 {
+            color: #1db954;
+        }
+        /* Spinner styling */
+        .stSpinner>div>div {
+            border-top-color: #1db954;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -642,7 +663,6 @@ def main():
                     else:
                         st.info("No documents found for this student.")
                     
-                   
                     new_matric_number = st.text_input("Matric Number:", value=student[0], key="update_matric_number")
                     new_name = st.text_input("Name:", value=student[1], key="update_name")
                     new_email = st.text_input("Email:", value=student[5], key="update_email")
