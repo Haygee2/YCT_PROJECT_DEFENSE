@@ -157,9 +157,6 @@ def store_student(matric_number, name, folder, face_image_path="", face_encoding
     query = '''INSERT OR REPLACE INTO students (matric_number, name, folder, face_image, face_encoding_path, email) 
                VALUES (?, ?, ?, ?, ?, ?)'''
     execute_query(query, (matric_number, name, folder, face_image_path, face_encoding_path, email))
-    # Automatically create user with matric number as username and surname as password
-    surname = name.split()[0]  # Assuming the first name is the surname
-    store_user(matric_number, surname, "Student")
 
 def get_student_folder(matric_number, name):
     """Retrieve or create the student's folder path."""
@@ -566,16 +563,15 @@ def main():
 
     if page == "Sign Up":
         st.subheader("Sign Up")
-        new_matric_number = st.text_input("Matric Number:", key="new_matric_number_input")
-        new_name = st.text_input("Full Name:", key="new_name_input")
-        new_role = "Student"  # Role is fixed to Student for sign-up
+        new_username = st.text_input("New Username:", key="new_username_input")
+        new_password = st.text_input("New Password:", type="password", key="new_password_input")
+        new_role = st.radio("Select Role:", ["Admin", "Student"], key="new_role_radio")
         
         if st.button("Create Account", key="create_account_button"):
-            if get_user(new_matric_number):
-                st.error("Matric number already exists. Please choose a different matric number.")
+            if get_user(new_username):
+                st.error("Username already exists. Please choose a different username.")
             else:
-                folder = get_student_folder(new_matric_number, new_name)
-                store_student(new_matric_number, new_name, folder)
+                store_user(new_username, new_password, new_role)
                 st.success("Account created successfully! You can now log in.")
 
     if st.session_state.logged_in:
@@ -714,14 +710,11 @@ def main():
             
             if st.button("Get Information", key="get_info_button") or st.session_state.get("submit_info", False):
                 if student_matric:
-                    if student_matric == st.session_state.verified_student[0]:  # Ensure the matric number matches the logged-in user
-                        student = get_student_info(student_matric)
-                        if student:
-                            st.session_state.verified_student = (student[0], student[1])
-                        else:
-                            st.error(f"No student found with matric number: {student_matric}")
+                    student = get_student_info(student_matric)
+                    if student:
+                        st.session_state.verified_student = (student[0], student[1])
                     else:
-                        st.error("You can only access your own data.")
+                        st.error(f"No student found with matric number: {student_matric}")
                 else:
                     st.error("Please enter a matric number")
         
