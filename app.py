@@ -446,18 +446,6 @@ def send_email_notification(to_email, subject, body):
     except Exception as e:
         print(f"Failed to send email: {e}")
 
-def convert_student_data_to_text(file):
-    """Convert student data from PDF, PNG, JPG, or JPEG to text."""
-    text = ""
-    if file.name.endswith(".pdf"):
-        with st.spinner('Processing PDF document...'):
-            images = pdf_to_images(file)
-            text = "".join(extract_text_from_image(img) for img in images)
-    elif file.name.lower().endswith(('.jpg', '.jpeg', '.png')):
-        image = Image.open(file)
-        text = extract_text_from_image(image)
-    return text
-
 def main():
     # Ensure the event loop is properly initialized
     try:
@@ -551,16 +539,6 @@ def main():
                 log_activity(st.session_state.user_role, f"Captured face for {admin_matric}")
             else:
                 st.error("Please enter the student's matric number and name.")
-
-        st.subheader("Convert Student Data to Text")
-        convert_file = st.file_uploader("Upload Document (Image or PDF) for Conversion", type=["jpg", "png", "pdf"], key="convert_file")
-        if st.button("Convert to Text", key="convert_to_text_button"):
-            if convert_file:
-                with st.spinner('Converting document...'):
-                    text = convert_student_data_to_text(convert_file)
-                    st.text_area("Converted Text:", value=text, height=350, key="converted_text_output")
-            else:
-                st.error("Please upload a document to convert.")
 
     if page == "Manage Students" and st.session_state.user_role == "Admin":
         st.subheader("Manage Students")
