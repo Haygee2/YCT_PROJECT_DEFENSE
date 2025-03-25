@@ -322,30 +322,33 @@ def capture_face_streamlit(student_folder=""):
     img_file = st.camera_input("Take a picture", key=f"camera_input_{camera_index}")
 
     if img_file:
-        # Convert to OpenCV format
-        file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-        frame = cv2.imdecode(file_bytes, 1)
+        try:
+            # Convert to OpenCV format
+            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+            frame = cv2.imdecode(file_bytes, 1)
 
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Convert to grayscale
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Detect faces
-        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+            # Detect faces
+            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-        if len(faces) > 0:
-            # Display the captured image
-            st.image(frame, caption="Captured Face", channels="BGR", width=700)  # Show the captured face
+            if len(faces) > 0:
+                # Display the captured image
+                st.image(frame, caption="Captured Face", channels="BGR", width=700)  # Show the captured face
 
-            if st.button("Save"):
-                captured_image_path = os.path.join(student_folder, "captured_face.jpg")
-                cv2.imwrite(captured_image_path, frame)
-                st.success("Face image saved successfully!")
+                if st.button("Save"):
+                    captured_image_path = os.path.join(student_folder, "captured_face.jpg")
+                    cv2.imwrite(captured_image_path, frame)
+                    st.success("Face image saved successfully!")
 
-            if st.button("Clear"):
-                st.warning("Face image capture cleared.")
-        else:
-            st.error("No face detected. Please try again.")
+                if st.button("Clear"):
+                    st.warning("Face image capture cleared.")
+            else:
+                st.error("No face detected. Please try again.")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
 
 def verify_matric_number(matric_number):
     conn = sqlite3.connect(DB_PATH)
