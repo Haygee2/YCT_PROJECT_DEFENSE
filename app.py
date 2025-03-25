@@ -307,9 +307,15 @@ def capture_face(camera_index=0, student_folder=""):
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
         st.error(f"Failed to open camera with index {camera_index}. Please ensure the camera is connected and accessible.")
+        print(f"Failed to open camera with index {camera_index}.")
         return
 
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    if face_cascade.empty():
+        st.error("Failed to load face cascade. Please ensure the path is correct.")
+        print("Failed to load face cascade. Please ensure the path is correct.")
+        return
+
     captured_image_path = os.path.join(student_folder, "captured_face.jpg")
     face_captured = False
 
@@ -319,6 +325,7 @@ def capture_face(camera_index=0, student_folder=""):
         ret, frame = cap.read()
         if not ret or frame is None:
             st.error("Failed to capture image from camera. Please ensure the camera is connected and accessible.")
+            print("Failed to capture image from camera. Please ensure the camera is connected and accessible.")
             break
         
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -347,6 +354,7 @@ def capture_face(camera_index=0, student_folder=""):
                 st.error("No face image to save. Please capture an image first.")
 
     cap.release()
+    cv2.destroyAllWindows()
 
     print("Face capture process completed.")
 
