@@ -634,7 +634,7 @@ def main():
                                         with open(doc_path, "r", encoding="utf-8") as file:
                                             st.text_area(f"Content of {selected_doc}", file.read(), height=300)
                             update_doc_file = st.file_uploader("Update Document (Image or PDF)", type=["jpg", "png", "pdf"], key="update_doc_file")
-                            if st.button("Update Document", key="update_doc_button"):
+                            if st.button("Save Document", key="update_doc_button"):
                                 if update_doc_file:
                                     with st.spinner('Updating document...'):
                                         file_path, text_file_path = update_document(student[2], update_doc_file, matric_number)
