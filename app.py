@@ -304,66 +304,33 @@ def get_latest_document_version(matric_number, document_name):
     result = execute_query(query, (matric_number, document_name), fetchone=True)
     return result[0] if result[0] else 0
 
-def capture_face(camera_index=0, student_folder=""):
-    # Try different backends for capturing video
-    cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)  # Force V4L2
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)  # Try DirectShow
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(camera_index, cv2.CAP_ANY)  # Let OpenCV choose
+def capture_face_streamlit(student_folder=""):
+    """Capture face using Streamlit's camera input."""
+    st.title("Capture Face Image")
 
-    if not cap.isOpened():
-        st.error(f"Failed to open camera with index {camera_index}. Please ensure the camera is connected and accessible.")
-        print(f"Failed to open camera with index {camera_index}.")
-        return
+    # Get image from Streamlit camera input
+    img_file = st.camera_input("Take a picture")
 
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    if face_cascade.empty():
-        st.error("Failed to load face cascade. Please ensure the path is correct.")
-        print("Failed to load face cascade. Please ensure the path is correct.")
-        return
+    if img_file:
+        # Convert to OpenCV format
+        file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+        frame = cv2.imdecode(file_bytes, 1)
 
-    captured_image_path = os.path.join(student_folder, "captured_face.jpg")
-    face_captured = False
-
-    st.info("Click 'Capture' to take a picture and 'Save' to save the best picture.")
-
-    while True:
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            st.error("Failed to capture image from camera. Please ensure the camera is connected and accessible.")
-            print("Failed to capture image from camera. Please ensure the camera is connected and accessible.")
-            break
-        
+        # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Detect faces
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-        
-        for (x, y, w, h) in faces:
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
-        
-        # Display the frame in Streamlit
-        st.image(frame, channels="BGR", caption="Face Capture")
 
-        if st.button("Capture"):
-            if len(faces) > 0:
-                cv2.imwrite(captured_image_path, frame)
-                face_captured = True
-                st.success("Face captured successfully! Click 'Save' to save the image.")
-            else:
-                st.error("No face detected. Please try again.")
-
-        if st.button("Save"):
-            if face_captured:
-                st.success("Face image saved successfully!")
-                st.image(captured_image_path, caption="Captured Face", width=700)  # Show the captured face
-                break
-            else:
-                st.error("No face image to save. Please capture an image first.")
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-    print("Face capture process completed.")
+        if len(faces) > 0:
+            # Save the captured image
+            captured_image_path = os.path.join(student_folder, "captured_face.jpg")
+            cv2.imwrite(captured_image_path, frame)
+            st.success("Face captured successfully!")
+            st.image(captured_image_path, caption="Captured Face", width=700)  # Show the captured face
+        else:
+            st.error("No face detected. Please try again.")
 
 def verify_matric_number(matric_number):
     conn = sqlite3.connect(DB_PATH)
@@ -534,6 +501,20 @@ def add_custom_css():
         </style>
     """, unsafe_allow_html=True)
 
+def webcam_stream():
+    """Stream webcam feed using OpenCV and Streamlit."""
+    st.title("Webcam Stream")
+    run = st.checkbox('Run')
+    FRAME_WINDOW = st.image([])
+    camera = cv2.VideoCapture(0)
+
+    while run:
+        _, frame = camera.read()
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        FRAME_WINDOW.image(frame)
+    else:
+        st.write('Stopped')
+
 def main():
     # Add custom CSS
     add_custom_css()
@@ -545,25 +526,9 @@ def main():
         asyncio.set_event_loop(asyncio.new_event_loop())
 
     st.title("YABA COLLEGE OF TECHNOLOGY COMPUTER ENGINEERING DEPARTMENT")
-
-    st.sidebar.title("Navigation")
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-    if "verified_student" not in st.session_state:
-        st.session_state.verified_student = None
-    if "user_role" not in st.session_state:
-        st.session_state.user_role = None
-
-    if not st.session_state.logged_in:
-        page = st.sidebar.radio("Go to", ["Login", "Sign Up"], key="main_nav")
-    else:
-        if st.session_state.user_role == "Admin":
-            page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
-        else:
-            page = st.sidebar.radio("Go to", ["Student Panel", "AI Study Helper"], key="student_nav")
+    page = st.sidebar.radio("Navigation", ["Login", "Sign Up", "Admin Panel", "Manage Students", "Analytics Dashboard", "Student Panel", "AI Study Helper", "Webcam Stream"], key="main_nav")
 
     if page == "Login":
-        st.subheader("Login")
         role = st.radio("Select Role:", ["Admin", "Student"], key="role_radio")
         username = st.text_input("Username:", key="username_input")
         password = st.text_input("Password:", type="password", key="password_input", on_change=submit_login)
@@ -625,7 +590,7 @@ def main():
         if st.button("Capture Student", key="capture_student_button"):
             if admin_matric and admin_name:
                 folder = get_student_folder(admin_matric, admin_name)
-                capture_face(folder)
+                capture_face_streamlit(folder)
                 st.success(f"Face captured for {admin_name} (Matric: {admin_matric}).")
                 log_activity(st.session_state.user_role, f"Captured face for {admin_matric}")
             else:
@@ -695,7 +660,7 @@ def main():
                     
                     camera_index = st.number_input("Enter Camera Index (0 for built-in, 1 for external, etc.):", min_value=0, value=0, step=1, key="camera_index_manage")
                     if st.button("Recapture Face Image", key=f"recapture_face_button_{matric_number}"):
-                        capture_face(camera_index, student[2])
+                        capture_face_streamlit(student[2])
                         st.success("Face image recaptured successfully.")
                         log_activity(st.session_state.user_role, f"Recaptured face image for {new_matric_number}")
         else:
@@ -734,11 +699,10 @@ def main():
                     st.error("Please enter a matric number")
         
         elif verification_method == "Facial Recognition":
-            camera_index = st.number_input("Enter Camera Index (0 for built-in, 1 for external, etc.):", min_value=0, value=0, step=1, key="camera_index_student")
             if st.button("Start Face Capture", key="start_face_capture_button"):
                 if st.session_state.verified_student:
                     student_folder = get_student_folder(st.session_state.verified_student[0], st.session_state.verified_student[1])
-                    capture_face(camera_index, student_folder)
+                    capture_face_streamlit(student_folder)
                 else:
                     st.error("Please verify your matric number first.")
 
@@ -790,6 +754,9 @@ def main():
 
     if page == "AI Study Helper" and st.session_state.user_role == "Student":
         ai_prompt_page()
+
+    if page == "Webcam Stream":
+        webcam_stream()
 
 def submit_login():
     st.session_state.submit_login = True
