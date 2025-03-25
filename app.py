@@ -329,6 +329,12 @@ def capture_face_streamlit(student_folder=""):
             cv2.imwrite(captured_image_path, frame)
             st.success("Face captured successfully!")
             st.image(captured_image_path, caption="Captured Face", width=700)  # Show the captured face
+
+            if st.button("Save"):
+                st.success("Face image saved successfully!")
+            if st.button("Cancel"):
+                os.remove(captured_image_path)
+                st.warning("Face image capture canceled.")
         else:
             st.error("No face detected. Please try again.")
 
@@ -501,20 +507,6 @@ def add_custom_css():
         </style>
     """, unsafe_allow_html=True)
 
-def webcam_stream():
-    """Stream webcam feed using OpenCV and Streamlit."""
-    st.title("Webcam Stream")
-    run = st.checkbox('Run')
-    FRAME_WINDOW = st.image([])
-    camera = cv2.VideoCapture(0)
-
-    while run:
-        _, frame = camera.read()
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        FRAME_WINDOW.image(frame)
-    else:
-        st.write('Stopped')
-
 def main():
     # Add custom CSS
     add_custom_css()
@@ -539,9 +531,9 @@ def main():
         page = st.sidebar.radio("Go to", ["Login", "Sign Up"], key="main_nav")
     else:
         if st.session_state.user_role == "Admin":
-            page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard", "Webcam Stream"], key="admin_nav")
+            page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
         else:
-            page = st.sidebar.radio("Go to", ["Student Panel", "AI Study Helper", "Webcam Stream"], key="student_nav")
+            page = st.sidebar.radio("Go to", ["Student Panel", "AI Study Helper"], key="student_nav")
 
     if page == "Login":
         st.subheader("Login")
@@ -768,9 +760,6 @@ def main():
 
     if page == "AI Study Helper" and st.session_state.user_role == "Student":
         ai_prompt_page()
-
-    if page == "Webcam Stream":
-        webcam_stream()
 
 def submit_login():
     st.session_state.submit_login = True
