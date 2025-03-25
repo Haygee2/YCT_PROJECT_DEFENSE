@@ -58,7 +58,8 @@ if os.name == 'nt':  # Windows
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
     os.environ["TESSDATA_PREFIX"] = os.path.join("C:", "Program Files", "Tesseract-OCR", "tessdata")
 
-# Print OpenCV version and build information
+# Verify OpenCV installation
+import cv2
 print(cv2.__version__)  # Check OpenCV version
 print(cv2.getBuildInformation())  # Check if compiled with V4L support
 
