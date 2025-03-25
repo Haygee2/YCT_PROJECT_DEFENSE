@@ -15,7 +15,6 @@ from dotenv import load_dotenv  # Add this import
 from chatbot import chat_with_ai  # Add this import
 import asyncio  # Add this import
 import numpy as np  # Add this import
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode  # Add this import
 
 # Load environment variables from .env file
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -300,38 +299,47 @@ def get_latest_document_version(matric_number, document_name):
     result = execute_query(query, (matric_number, document_name), fetchone=True)
     return result[0] if result[0] else 0
 
-class FaceCaptureTransformer(VideoTransformerBase):
-    def __init__(self):
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        self.captured_image = None
-
-    def transform(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = self.face_cascade.detectMultiScale(gray, 1.3, 5)
+def capture_face(camera_index=0, student_folder=""):
+    cap = cv2.VideoCapture(camera_index)
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    face_captured = False
+    captured_image_path = os.path.join(student_folder, "captured_face.jpg")
+    
+    st.info("Get ready! Capturing the image in 5 seconds...")
+    time.sleep(5)  # Add a 5-second delay
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            st.error("Failed to capture image from camera. Please ensure the camera is connected and accessible.")
+            break
+        
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
         
         for (x, y, w, h) in faces:
-            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
-            self.captured_image = img
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
         
-        return img
+        cv2.imshow('Face Capture', frame)
+        
+        if len(faces) > 0:
+            cv2.imwrite(captured_image_path, frame)
+            face_captured = True
+            break
+        
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+    
+    if face_captured:
+        st.success("Face captured successfully!")
+        st.image(captured_image_path, caption="Captured Face", width=700)  # Show the captured face
+    else:
+        st.error("Failed to capture face.")
 
-def capture_face(student_folder=""):
-    webrtc_ctx = webrtc_streamer(
-        key="face-capture",
-        mode=WebRtcMode.SENDRECV,
-        video_transformer_factory=FaceCaptureTransformer,
-        async_transform=True,
-    )
-
-    if webrtc_ctx.video_transformer:
-        if webrtc_ctx.video_transformer.captured_image is not None:
-            captured_image_path = os.path.join(student_folder, "captured_face.jpg")
-            cv2.imwrite(captured_image_path, webrtc_ctx.video_transformer.captured_image)
-            st.success("Face captured successfully!")
-            st.image(captured_image_path, caption="Captured Face", width=700)  # Show the captured face
-        else:
-            st.info("No face detected yet. Please ensure your face is visible in the camera.")
+    print("Face capture process completed.")
 
 def verify_matric_number(matric_number):
     conn = sqlite3.connect(DB_PATH)
@@ -597,7 +605,7 @@ def main():
                     
                     camera_index = st.number_input("Enter Camera Index (0 for built-in, 1 for external, etc.):", min_value=0, value=0, step=1, key="camera_index_manage")
                     if st.button("Recapture Face Image", key=f"recapture_face_button_{matric_number}"):
-                        capture_face(student[2])
+                        capture_face(camera_index, student[2])
                         st.success("Face image recaptured successfully.")
                         log_activity(st.session_state.user_role, f"Recaptured face image for {new_matric_number}")
         else:
@@ -636,10 +644,11 @@ def main():
                     st.error("Please enter a matric number")
         
         elif verification_method == "Facial Recognition":
+            camera_index = st.number_input("Enter Camera Index (0 for built-in, 1 for external, etc.):", min_value=0, value=0, step=1, key="camera_index_student")
             if st.button("Start Face Capture", key="start_face_capture_button"):
                 if st.session_state.verified_student:
                     student_folder = get_student_folder(st.session_state.verified_student[0], st.session_state.verified_student[1])
-                    capture_face(student_folder)
+                    capture_face(camera_index, student_folder)
                 else:
                     st.error("Please verify your matric number first.")
 
