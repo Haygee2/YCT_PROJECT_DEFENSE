@@ -320,8 +320,9 @@ def capture_face(camera_index=0, student_folder=""):
         for (x, y, w, h) in faces:
             cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
         
-        cv2.imshow('Face Capture', frame)
-        
+        # Display the frame in Streamlit
+        st.image(frame, channels="BGR", caption="Face Capture")
+
         if len(faces) > 0:
             cv2.imwrite(captured_image_path, frame)
             face_captured = True
@@ -331,7 +332,6 @@ def capture_face(camera_index=0, student_folder=""):
             break
     
     cap.release()
-    cv2.destroyAllWindows()
     
     if face_captured:
         st.success("Face captured successfully!")
