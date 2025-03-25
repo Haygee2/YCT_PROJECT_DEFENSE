@@ -314,7 +314,9 @@ def capture_face_streamlit(student_folder=""):
     camera_index = st.selectbox("Select Camera", options=[0, 1], index=st.session_state.camera_index, key="camera_select")
 
     # Update camera index in session state
-    st.session_state.camera_index = camera_index
+    if st.session_state.camera_index != camera_index:
+        st.session_state.camera_index = camera_index
+        st.experimental_rerun()
 
     # Get image from Streamlit camera input
     img_file = st.camera_input("Take a picture", key=f"camera_input_{camera_index}")
