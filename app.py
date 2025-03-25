@@ -673,6 +673,18 @@ def main():
                     if st.button("Recapture Face Image", key=f"recapture_face_button_{matric_number}"):
                         capture_face_streamlit(student[2])
                         log_activity(st.session_state.user_role, f"Recaptured face image for {new_matric_number}")
+
+                    # Add document upload functionality here
+                    doc_file = st.file_uploader("Upload Document (Image or PDF)", type=["jpg", "png", "pdf"], key="manage_doc_file")
+                    if st.button("Save Document", key="manage_save_doc_button"):
+                        if doc_file:
+                            with st.spinner('Saving document...'):
+                                folder = get_student_folder(matric_number, student[1])
+                                file_path, text_file_path = save_document(folder, doc_file, matric_number)
+                                st.success(f"Document saved for {student[1]} (Matric: {matric_number}).")
+                                log_activity(st.session_state.user_role, f"Uploaded document for {matric_number}")
+                        else:
+                            st.error("Please upload a document.")
         else:
             st.info("No students found.")
 
