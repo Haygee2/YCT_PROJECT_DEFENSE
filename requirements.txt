@@ -6,4 +6,3 @@ PyMuPDF
 opencv-python-headless
 python-dotenv
 openai
-face_recognition
