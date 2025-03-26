@@ -15,6 +15,7 @@ from dotenv import load_dotenv  # Add this import
 from chatbot import chat_with_ai  # Add this import
 import asyncio  # Add this import
 import numpy as np  # Add this import
+import face_recognition  # Add this import
 
 # Load environment variables from .env file
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -26,13 +27,10 @@ print(f"Files in the current directory: {os.listdir(os.getcwd())}")
 
 # Verify if the environment variable is loaded
 api_key = os.getenv('OPENROUTER_API_KEY')
-print(f"OPENROUTER_API_KEY: {api_key}")
-
-# Check if the API key is loaded correctly
 if not api_key:
-    print("Error: OPENROUTER_API_KEY not found in environment variables.")
+    st.error("Error: OPENROUTER_API_KEY not found in environment variables. Please check your .env file.")
 else:
-    print("OPENROUTER_API_KEY loaded successfully.")
+    st.success("OPENROUTER_API_KEY loaded successfully.")
 
 # Set up OpenAI API (replace with your API key)
 OPENROUTER_API_KEY = api_key
@@ -44,10 +42,9 @@ else:
             base_url="https://api.openai.com/v1",
             api_key=OPENROUTER_API_KEY
         )
-        print("OpenAI client initialized successfully.")
+        st.success("OpenAI client initialized successfully.")
     except Exception as e:
         st.error(f"Failed to initialize OpenAI client: {e}")
-        print(f"Failed to initialize OpenAI client: {e}")
 
 # Set the path to Tesseract-OCR executable
 if os.name == 'nt':  # Windows
@@ -115,9 +112,7 @@ def init_db():
 init_db()
 
 def execute_query(query, params=(), fetchone=False, fetchall=False):
-    """
-    General function to execute queries safely.
-    """
+    """General function to execute queries safely."""
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
@@ -131,9 +126,7 @@ def execute_query(query, params=(), fetchone=False, fetchall=False):
             conn.commit()
             return None
     except sqlite3.Error as e:
-        st.error(f"Database error: {e}")
-        print(f"Database error: {e}")  # Improved logging
-        return None
+        return {"error": str(e)}
 
 def get_user(username):
     """Fetch user details by username."""
@@ -298,65 +291,66 @@ def save_document_version(matric_number, document_name, file_path, text_file_pat
                VALUES (?, ?, ?, ?, ?, ?)'''
     execute_query(query, (matric_number, document_name, version, file_path, text_file_path, timestamp))
 
-def capture_face_streamlit(student_folder=""):
+def capture_face_streamlit(student_folder):
     """Capture face using Streamlit's camera input."""
     st.title("Capture Face Image")
-
-    # Select webcam
-    if "camera_index" not in st.session_state:
-        st.session_state.camera_index = 0
-    camera_index = st.selectbox("Select Camera", options=[0, 1], index=st.session_state.camera_index, key="camera_select")
-
-    # Update camera index in session state
-    if st.session_state.camera_index != camera_index:
-        st.session_state.camera_index = camera_index
-        st.experimental_rerun()
-
-    # Get image from Streamlit camera input
-    img_file = st.camera_input("Take a picture", key=f"camera_input_{camera_index}")
-
+    img_file = st.camera_input("Take a picture")
     if img_file:
         try:
-            # Convert to OpenCV format
-            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-            frame = cv2.imdecode(file_bytes, 1)
+            temp_image_path = os.path.join(student_folder, "temp_captured_face.jpg")
+            with open(temp_image_path, "wb") as f:
+                f.write(img_file.getvalue())
 
-            # Convert to grayscale
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            captured_image = face_recognition.load_image_file(temp_image_path)
+            captured_encodings = face_recognition.face_encodings(captured_image)
 
-            # Detect faces
-            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-
-            if len(faces) > 0:
-                # Display the captured image
-                st.image(frame, caption="Captured Face", channels="BGR", width=700)  # Show the captured face
-
-                if st.button("Save"):
-                    captured_image_path = os.path.join(student_folder, "captured_face.jpg")
-                    cv2.imwrite(captured_image_path, frame)
-                    st.success("Face image saved successfully!")
-
-                if st.button("Clear"):
-                    st.warning("Face image capture cleared.")
+            if len(captured_encodings) > 0:
+                captured_encoding = captured_encodings[0]
+                face_encoding_path = os.path.join(student_folder, "face_encoding.npy")
+                np.save(face_encoding_path, captured_encoding)
+                st.success("Face captured and encoding saved successfully!")
             else:
                 st.error("No face detected. Please try again.")
         except Exception as e:
             st.error(f"An error occurred: {e}")
+        finally:
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
 
-def verify_matric_number(matric_number):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM students WHERE matric_number = ?", (matric_number,))
-    student_data = cursor.fetchone()
-    conn.close()
-    
-    if student_data:
-        print("Matric number verified!")
-        return student_data
-    else:
-        print("Matric number not found!")
-        return None
+def verify_face(student_folder):
+    """Verify face using Streamlit's camera input."""
+    st.title("Facial Recognition Verification")
+    img_file = st.camera_input("Capture your face for verification")
+    if img_file:
+        try:
+            temp_image_path = os.path.join(student_folder, "temp_captured_face.jpg")
+            with open(temp_image_path, "wb") as f:
+                f.write(img_file.getvalue())
+
+            captured_image = face_recognition.load_image_file(temp_image_path)
+            captured_encodings = face_recognition.face_encodings(captured_image)
+
+            if len(captured_encodings) > 0:
+                captured_encoding = captured_encodings[0]
+                face_encoding_path = os.path.join(student_folder, "face_encoding.npy")
+                if os.path.exists(face_encoding_path):
+                    stored_encoding = np.load(face_encoding_path)
+                    matches = face_recognition.compare_faces([stored_encoding], captured_encoding)
+                    if matches[0]:
+                        st.success("Face verified successfully!")
+                        return True
+                    else:
+                        st.error("Face verification failed. Please try again.")
+                else:
+                    st.error("No stored face encoding found.")
+            else:
+                st.error("No face detected. Please try again.")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+        finally:
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+    return False
 
 def ai_extract_text(image):
     """Extract text from an image using AI."""
@@ -403,16 +397,10 @@ def submit_query():
     st.session_state.submit_query = True
 
 def list_student_documents(folder):
-    """List all documents (original and text) in the student's folder."""
+    """List all documents for a student."""
     if not os.path.exists(folder):
         return []
-    
-    documents = []
-    for file in os.listdir(folder):
-        if file.endswith(('.txt', '.pdf', '.jpg', '.jpeg', '.png')):
-            documents.append(file)
-    
-    return documents
+    return [f for f in os.listdir(folder) if f.endswith(('.txt', '.pdf', '.jpg', '.jpeg', '.png'))]
 
 def update_student_info(matric_number, name, folder, face_image_path="", face_encoding_path="", email=""):
     """Update student information in the database."""
@@ -543,7 +531,7 @@ def main():
 
     if page == "Login":
         st.subheader("Login")
-        role = st.radio("Select Role:", ["Admin", "Student"], key="role_radio")
+        role = st.selectbox("Select Role:", ["Admin", "Student"], key="role_selectbox")
         username = st.text_input("Username:", key="username_input")
         password = st.text_input("Password:", type="password", key="password_input", on_change=submit_login)
         
@@ -731,46 +719,27 @@ def main():
             student = get_student_info(matric)
             
             if student:
+                folder = student[2]
+                if not verify_face(folder):
+                    st.error("Facial recognition failed. Please try again.")
+                    return
                 st.success(f"Welcome, {student[1]}!")
-                st.subheader("Your Information")
-                st.write(f"Matric Number: {student[0]}")
-                st.write(f"Name: {student[1]}")
-                
-                if student[3] and os.path.exists(student[3]):
-                    st.image(student[3], caption="Registered Face", width=200)
-                
-                documents = list_student_documents(student[2])
+                documents = list_student_documents(folder)
                 if documents:
                     st.subheader("Your Documents")
-                    selected_doc = st.selectbox("Select a document to view:", documents, key="select_doc")
-                    
+                    selected_doc = st.selectbox("Select a document to view:", documents)
                     if selected_doc:
-                        doc_path = os.path.join(student[2], selected_doc)
+                        doc_path = os.path.join(folder, selected_doc)
                         if selected_doc.endswith('.txt'):
-                            if os.path.exists(doc_path):
-                                if st.button("Show Document", key="show_doc_button"):
-                                    with open(doc_path, "r", encoding="utf-8") as file:
-                                        st.text_area(f"Content of {selected_doc}", file.read(), height=300)
-                        if not selected_doc.endswith('.txt'):
-                            st.download_button(
-                                label="Download Original Document",
-                                data=open(doc_path, "rb").read(),
-                                file_name=selected_doc,
-                                mime="application/octet-stream"
-                            )
-                        if selected_doc.endswith('.txt'):
-                            st.download_button(
-                                label="Download Text Document",
-                                data=open(doc_path, "rb").read(),
-                                file_name=selected_doc,
-                                mime="text/plain"
-                            )
+                            with open(doc_path, "r", encoding="utf-8") as file:
+                                st.text_area(f"Content of {selected_doc}", file.read(), height=300)
+                        st.download_button("Download Document", open(doc_path, "rb").read(), file_name=selected_doc)
                 else:
                     st.info("No documents found for your account.")
-                
-                if st.button("Log Out", key="logout_button"):
-                    st.session_state.verified_student = None
-                    st.experimental_set_query_params(logged_in=False)
+            else:
+                st.error("Student record not found. Please contact the admin.")
+        else:
+            st.error("Please log in to view your information.")
 
     if page == "AI Study Helper" and st.session_state.user_role == "Student":
         ai_prompt_page()

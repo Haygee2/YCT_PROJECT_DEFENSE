@@ -1,6 +1,9 @@
 import os
 from dotenv import load_dotenv
 import openai
+from PIL import Image
+import pytesseract
+import fitz  # PyMuPDF
 
 # Load environment variables from .env file
 load_dotenv()
@@ -8,11 +11,30 @@ load_dotenv()
 # Initialize conversation history
 conversation_history = []
 
-def chat_with_ai(query):
+def extract_text_from_file(file_path):
+    """Extract text from a file (PDF or image)."""
+    if file_path.endswith(".pdf"):
+        text = ""
+        doc = fitz.open(file_path)
+        for page in doc:
+            text += page.get_text()
+        return text
+    elif file_path.lower().endswith(('.jpg', '.jpeg', '.png')):
+        image = Image.open(file_path)
+        return pytesseract.image_to_string(image)
+    else:
+        return "Unsupported file format."
+
+def chat_with_ai(query, file_path=None):
     """AI Chatbot interaction using OpenRouter API."""
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     if not OPENROUTER_API_KEY:
         return "API key not found."
+
+    # If a file is provided, extract its text and append it to the query
+    if file_path:
+        file_text = extract_text_from_file(file_path)
+        query += f"\n\nDocument Content:\n{file_text}"
 
     # Add user query to conversation history
     conversation_history.append({"role": "user", "content": query})

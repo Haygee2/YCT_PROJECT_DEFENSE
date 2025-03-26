@@ -1,8 +1,0 @@
-Power in AC circuits is categorized into different components: real power (P), reactive power (Q), and
-apparent power (5). Real power, measured in watts (W), represents the actual energy consumed by
-Tesistive components, Reactive power, measured in volt-amperes reactive (VAR), is associated with
-energy storage elements like inductors and capacitors, causing phase shifts between voltage and
-current, Apparent power, measured in volt-amperes (VA), is the total power in the circuit, combining
-both real and reactive components. The relationship between these is given by the power triangle,
-where S? = P® + ?, and the power factor, defined as cos @ = &, indicates efficiency. A higher
-power factor means better efficiency, reducing energy losses in the system.
