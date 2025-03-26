@@ -15,7 +15,14 @@ from dotenv import load_dotenv  # Add this import
 from chatbot import chat_with_ai  # Add this import
 import asyncio  # Add this import
 import numpy as np  # Add this import
-import face_recognition  # Add this import
+
+# Check for face_recognition availability
+try:
+    import face_recognition  # Add this import
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+    st.warning("Facial recognition features are unavailable because the 'face_recognition' library is not installed.")
 
 # Load environment variables from .env file
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -293,6 +300,9 @@ def save_document_version(matric_number, document_name, file_path, text_file_pat
 
 def capture_face_streamlit(student_folder):
     """Capture face using Streamlit's camera input."""
+    if not FACE_RECOGNITION_AVAILABLE:
+        st.error("Facial recognition is not supported in this environment.")
+        return
     st.title("Capture Face Image")
     img_file = st.camera_input("Take a picture")
     if img_file:
@@ -319,6 +329,9 @@ def capture_face_streamlit(student_folder):
 
 def verify_face(student_folder):
     """Verify face using Streamlit's camera input."""
+    if not FACE_RECOGNITION_AVAILABLE:
+        st.error("Facial recognition is not supported in this environment.")
+        return False
     st.title("Facial Recognition Verification")
     img_file = st.camera_input("Capture your face for verification")
     if img_file:
