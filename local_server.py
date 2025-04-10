@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 import openai  # Ensure you install the OpenAI library: pip install openai
 import requests  # Ensure you install the requests library: pip install requests
 from chatbot import chat_with_ai  # Import the chatbot function
+from docx import Document  # Ensure you install python-docx: pip install python-docx
 
 # Load environment variables from .env file
 load_dotenv()
@@ -54,7 +55,7 @@ def init_db():
                                 matric_number TEXT PRIMARY KEY,
                                 name TEXT,
                                 folder TEXT,
-                                email TEXT)''')
+                                academic_session TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS activity_logs (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 user TEXT,
@@ -86,7 +87,7 @@ def get_all_students():
 @app.route('/student/<matric_number>', methods=['GET'])
 def get_student_info(matric_number):
     """Fetch student details by matric_number."""
-    query = "SELECT matric_number, name, folder, face_image, face_encoding_path, email FROM students WHERE matric_number = ?"
+    query = "SELECT matric_number, name, folder, academic_session FROM students WHERE matric_number = ?"
     student = execute_query(query, (matric_number,), fetchone=True)
     if student:
         return jsonify(student)
@@ -102,7 +103,10 @@ def upload_document():
     if not matric_number or not name or not file:
         return jsonify({"error": "Missing required fields"}), 400
 
-    folder = os.path.join("students_data", f"{name}_{matric_number[-3:]}")
+    # Ensure matric_number is at least 3 characters long
+    if len(matric_number) < 3:
+        raise ValueError("Matric number must be at least 3 characters long.")
+    folder = os.path.join("students_data", f"{name}_{matric_number[-3:]}")  # Student-specific folder
     os.makedirs(folder, exist_ok=True)
     file_path = os.path.join(folder, file.filename)
     file.save(file_path)
@@ -114,12 +118,51 @@ def upload_document():
         image = Image.open(file_path)
         text = extract_text_from_image(image)
 
-    text_file_path = file_path.rsplit('.', 1)[0] + ".txt"
+    text_file_path = os.path.join(folder, f"{file.filename.rsplit('.', 1)[0]}.txt")
     with open(text_file_path, "w", encoding="utf-8") as txt_file:
         txt_file.write(text)
 
+    # Save extracted text as a Word document in the student's folder
+    word_file_path = os.path.join(folder, f"{file.filename.rsplit('.', 1)[0]}.docx")
+    save_text_as_word(text, word_file_path)
+
     save_document_version(matric_number, file.filename, file_path, text_file_path)
-    return jsonify({"message": "Document uploaded successfully", "file_path": file_path, "text_file_path": text_file_path})
+    return jsonify({
+        "message": "Document uploaded successfully",
+        "file_path": file_path,
+        "text_file_path": text_file_path,
+        "word_file_path": word_file_path
+    })
+
+@app.route('/save_extracted_text', methods=['POST'])
+def save_extracted_text():
+    """Save extracted text as a .txt file."""
+    data = request.json
+    matric_number = data.get('matric_number')
+    document_name = data.get('document_name')
+    extracted_text = data.get('extracted_text')
+
+    if not matric_number or not document_name or not extracted_text:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    # Ensure the folder is specific to the student
+    folder = os.path.join("students_data", f"{matric_number[-3:]}")
+    os.makedirs(folder, exist_ok=True)
+
+    # Save the extracted text as a .txt file
+    text_file_path = os.path.join(folder, f"{document_name.rsplit('.', 1)[0]}_extracted.txt")
+    try:
+        with open(text_file_path, "w", encoding="utf-8") as txt_file:
+            txt_file.write(extracted_text)
+        return jsonify({"message": "Extracted text saved successfully", "text_file_path": text_file_path})
+    except Exception as e:
+        return jsonify({"error": f"Failed to save extracted text: {str(e)}"}), 500
+
+def save_text_as_word(text, word_file_path):
+    """Save extracted text as a Word document."""
+    doc = Document()
+    doc.add_paragraph(text)
+    doc.save(word_file_path)
 
 def extract_text_from_image(image):
     """Extract text from an image using Tesseract OCR."""
@@ -231,43 +274,120 @@ def verify_admin_face(username):
         st.info("Please capture your face for verification.")
     return False
 
+def get_student_folder(name, matric_number):
+    """Generate the folder path for a student."""
+    return os.path.join("students_data", f"{name}_{matric_number[-3:]}")
+
+def handle_document_actions(documents, folder):
+    """Handle document-related actions like preview, delete, and download."""
+    if documents:
+        st.subheader("Documents")
+        selected_doc = st.selectbox("Select a document to view:", documents, key="select_doc")
+        if selected_doc:
+            doc_path = os.path.join(folder, selected_doc)
+
+            # Preview Document
+            if st.button("Preview Document with AI", key="preview_ai_button"):
+                st.subheader("AI-Extracted Content:")
+                ai_preview = chat_with_ai("Extract detailed text from this document:", file_path=doc_path)
+                st.write(ai_preview)
+
+            # Delete Document
+            if st.button("Delete Document", key="delete_doc_button"):
+                try:
+                    os.remove(doc_path)
+                    st.success(f"Document '{selected_doc}' has been deleted.")
+                    documents.remove(selected_doc)  # Update the list after deletion
+                except Exception as e:
+                    st.error(f"Error deleting document: {e}")
+
+            # Download Document
+            if os.path.exists(doc_path):
+                st.download_button("Download Document", open(doc_path, "rb").read(), file_name=selected_doc)
+    else:
+        st.info("No documents found for this student.")
+
+def update_student_details(student, updated_name, updated_matric_number, updated_session):
+    """Update student details and handle folder renaming."""
+    new_folder = get_student_folder(updated_name, updated_matric_number)
+    os.makedirs(new_folder, exist_ok=True)
+
+    # Move files if folder name changes
+    if student[2] != new_folder:
+        for file_name in os.listdir(student[2]):
+            os.rename(os.path.join(student[2], file_name), os.path.join(new_folder, file_name))
+        if not os.listdir(student[2]):
+            os.rmdir(student[2])
+
+    # Update database
+    query = '''UPDATE students SET matric_number = ?, name = ?, academic_session = ?, folder = ? WHERE matric_number = ?'''
+    execute_query(query, (updated_matric_number, updated_name, updated_session, new_folder, student[0]))
+    st.success(f"Student details updated for {updated_name} (Matric: {updated_matric_number}).")
+
 def streamlit_frontend():
     """Streamlit frontend for interacting with the backend."""
     st.title("YABA COLLEGE OF TECHNOLOGY COMPUTER ENGINEERING DEPARTMENT")
 
-    st.sidebar.title("Navigation")
+    # Initialize session state
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
     if "user_role" not in st.session_state:
         st.session_state.user_role = None
 
-    if not st.session_state.logged_in:
-        # Add "Delete Admin" option to the navigation
-        page = st.sidebar.selectbox("Select an option:", ["Login", "Sign Up", "Delete Admin"], key="startup_nav")
-    else:
-        # Admin navigation
-        page = st.sidebar.selectbox("Select an option:", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
+    # Get current page from query parameters
+    default_page = "Login"
+    page = st.query_params.get("page", default_page)
 
+    # Validate page based on login state
+    if not st.session_state.logged_in:
+        available_pages = ["Login", "Sign Up", "Delete Admin"]
+        if page not in available_pages:
+            page = default_page
+            st.query_params["page"] = page
+    else:
+        available_pages = ["Admin Panel", "Manage Students", "Analytics Dashboard"]
+        if page not in available_pages:
+            page = "Admin Panel"
+            st.query_params["page"] = page
+
+    # Sidebar navigation
+    st.sidebar.title("Navigation")
+    selected_page = st.sidebar.selectbox(
+        "Select an option:",
+        available_pages,
+        index=available_pages.index(page),
+        key="nav_select"
+    )
+
+    # Update query params if selection changes
+    if selected_page != page:
+        st.query_params["page"] = selected_page
+        st.rerun()
+
+    # Login Page
     if page == "Login":
         st.subheader("Admin Login")
         username = st.text_input("Username:", key="username_input")
         password = st.text_input("Password:", type="password", key="password_input")
         
         if st.button("Login", key="login_button"):
-            # Admin login logic
-            user = execute_query("SELECT username, password, role FROM users WHERE username = ?", (username,), fetchone=True)
+            user = execute_query("SELECT username, password, role FROM users WHERE username = ?", 
+                                (username,), fetchone=True)
             if user and user[1] == password and user[2] == "Admin":
                 st.success("Login successful! Redirecting to Admin Panel...")
-                # Update session state and redirect to Admin Panel
-                st.session_state.logged_in = True
-                st.session_state.user_role = "Admin"
-                st.session_state.username = username
-                st.experimental_set_query_params(page="Admin Panel")
+                st.session_state.update({
+                    "logged_in": True,
+                    "user_role": "Admin",
+                    "username": username
+                })
+                st.query_params["page"] = "Admin Panel"  # Updated query params
                 execute_query("INSERT INTO activity_logs (user, action, timestamp) VALUES (?, ?, ?)", 
-                              (username, "Admin Login", datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                            (username, "Admin Login", datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                st.rerun()
             else:
                 st.error("Invalid credentials or role mismatch.")
-
+	
+	# Sign Up Page (keep your existing implementation)
     if page == "Sign Up":
         st.subheader("Admin Sign Up")
         new_username = st.text_input("New Admin Username:", key="new_username_input")
@@ -313,7 +433,7 @@ def streamlit_frontend():
                             st.error("No face detected in the captured image. Please try again.")
                     except Exception as e:
                         st.error(f"An error occurred while processing the face image: {e}")
-
+						
     if page == "Delete Admin":
         st.subheader("Delete Admin Account")
         admin_username = st.text_input("Enter Admin Username to Delete:", key="delete_admin_username")
@@ -342,12 +462,14 @@ def streamlit_frontend():
                         st.error(f"An error occurred while deleting the admin account: {e}")
                 else:
                     st.error("Invalid admin credentials. Please try again.")
-
+					
+	 # Logout Handling
     if st.session_state.logged_in:
         if st.sidebar.button("Log Out", key="logout_sidebar"):
             st.session_state.logged_in = False
             st.session_state.user_role = None
-            st.experimental_set_query_params(logged_in=False)
+            st.query_params.clear()  # Clear all query parameters
+            st.rerun()
 
     if page == "Admin Panel" and st.session_state.user_role == "Admin":
         st.subheader("Admin Panel: Manage Students and Process Documents with AI")
@@ -361,16 +483,15 @@ def streamlit_frontend():
         st.subheader("Save Student Details")
         admin_matric = st.text_input("Enter Student Matric Number:", key="admin_matric").strip()
         admin_name = st.text_input("Enter Student Name:", key="admin_name")
-        admin_email = st.text_input("Enter Student Email:", key="admin_email")
-        admin_phone = st.text_input("Enter Student Phone Number:", key="admin_phone")
+        admin_session = st.text_input("Enter Academic Session:", key="admin_session")
 
         if st.button("Save Student Details", key="save_student_details_button"):
-            if admin_matric and admin_name and admin_email and admin_phone:
-                folder = os.path.join("students_data", f"{admin_name}_{admin_matric[-3:]}")
+            if admin_matric and admin_name and admin_session:
+                folder = os.path.join("students_data", f"{admin_name}_{admin_matric[-3:]}")  # Ensure folder name is correct
                 os.makedirs(folder, exist_ok=True)
-                query = '''INSERT OR REPLACE INTO students (matric_number, name, folder, email) 
+                query = '''INSERT OR REPLACE INTO students (matric_number, name, folder, academic_session) 
                            VALUES (?, ?, ?, ?)'''
-                execute_query(query, (admin_matric, admin_name, folder, admin_email))
+                execute_query(query, (admin_matric, admin_name, folder, admin_session))
                 st.success(f"Student details saved for {admin_name} (Matric: {admin_matric}).")
             else:
                 st.error("Please fill in all the fields.")
@@ -379,29 +500,42 @@ def streamlit_frontend():
         st.subheader("Upload and Process Documents with AI")
         admin_doc_file = st.file_uploader("Upload a document (PDF, JPG, PNG) for AI-assisted text extraction:", type=["pdf", "jpg", "jpeg", "png"], key="admin_doc_file")
         if admin_doc_file:
-            file_path = os.path.join("admin_uploaded_files", admin_doc_file.name)
-            os.makedirs("admin_uploaded_files", exist_ok=True)
-            with open(file_path, "wb") as f:
-                f.write(admin_doc_file.read())
-            st.success(f"File '{admin_doc_file.name}' uploaded successfully!")
+            folder = os.path.join("students_data", f"{admin_name}_{admin_matric[-3:]}")  # Student-specific folder
+            os.makedirs(folder, exist_ok=True)
+            file_path = os.path.join(folder, admin_doc_file.name)
+            
+            # Save the original document
+            if st.button("Save Original Document", key="save_original_doc_button"):
+                with open(file_path, "wb") as f:
+                    f.write(admin_doc_file.read())
+                st.success(f"Original document '{admin_doc_file.name}' saved successfully!")
 
             # Extract text using AI
             if st.button("Extract Text with AI", key="extract_text_ai_button"):
-                extracted_text = chat_with_ai("Extract detailed text from this document:", file_path=file_path)
+                extracted_text = ""
+                if admin_doc_file.name.endswith(".pdf"):
+                    extracted_text = extract_text_from_pdf(file_path)
+                elif admin_doc_file.name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    image = Image.open(file_path)
+                    extracted_text = extract_text_from_image(image)
+
                 st.subheader("AI-Extracted Text:")
                 st.write(extracted_text)  # Display the extracted text as non-editable content
 
-                # Option to save the extracted text
-                if st.button("Save Extracted Text", key="save_extracted_text_button"):
-                    if admin_matric and admin_name:
-                        folder = os.path.join("students_data", f"{admin_name}_{admin_matric[-3:]}")
-                        os.makedirs(folder, exist_ok=True)
-                        text_file_path = os.path.join(folder, f"{admin_doc_file.name.rsplit('.', 1)[0]}_ai_extracted.txt")
-                        with open(text_file_path, "w", encoding="utf-8") as txt_file:
-                            txt_file.write(extracted_text)
-                        st.success(f"Extracted text saved to '{text_file_path}' for student {admin_name} (Matric: {admin_matric}).")
+                # Save the extracted text as a .txt file
+                if st.button("Save Extracted Text as Text", key="save_extracted_text_txt_button"):
+                    response = requests.post(
+                        "http://127.0.0.1:5000/save_extracted_text",
+                        json={
+                            "matric_number": admin_matric,
+                            "document_name": admin_doc_file.name,
+                            "extracted_text": extracted_text
+                        }
+                    )
+                    if response.status_code == 200:
+                        st.success(f"Extracted text saved successfully: {response.json().get('text_file_path')}")
                     else:
-                        st.error("Please save the student details before saving the extracted text.")
+                        st.error(f"Failed to save extracted text: {response.json().get('error')}")
 
     if page == "Manage Students" and st.session_state.user_role == "Admin":
         st.subheader("Manage Students")
@@ -422,51 +556,20 @@ def streamlit_frontend():
                     st.write(f"Name: {student[1]}")
                     st.write(f"Folder: {student[2]}")
 
-                    # Display the student's captured picture if it exists
-                    captured_image_path = os.path.join(student[2], "captured_face.png")
-                    if os.path.exists(captured_image_path):
-                        st.image(captured_image_path, caption="Captured Face", width=200)
-                    else:
-                        st.info("No captured face image found for this student.")
+                    if not os.path.exists(student[2]):
+                        st.warning(f"The folder '{student[2]}' does not exist.")
+                        return
 
+                    # Ensure the folder exists before listing its contents
                     documents = [f for f in os.listdir(student[2]) if f.endswith(('.txt', '.pdf', '.jpg', '.jpeg', '.png'))]
-                    if documents:
-                        st.subheader("Documents")
-                        selected_doc = st.selectbox("Select a document to view:", documents, key="select_doc")
-                        if selected_doc:
-                            doc_path = os.path.join(student[2], selected_doc)
-                            
-                            # AI Preview Feature
-                            if st.button("Preview Document with AI", key="preview_ai_button"):
-                                st.subheader("AI-Extracted Content:")
-                                ai_preview = chat_with_ai("Extract detailed text from this document:", file_path=doc_path)
-                                st.write(ai_preview)  # Display the AI-extracted content as non-editable text
 
-                            # Option to delete the document
-                            if st.button("Delete Document", key="delete_doc_button"):
-                                if os.path.exists(doc_path):  # Check if the file exists
-                                    try:
-                                        os.remove(doc_path)
-                                        st.success(f"Document '{selected_doc}' has been deleted.")
-                                        # Update the documents list after successful deletion
-                                        documents = [f for f in os.listdir(student[2]) if f.endswith(('.txt', '.pdf', '.jpg', '.jpeg', '.png'))]
-                                    except Exception as e:
-                                        st.error(f"Error deleting document: {e}")
-                                else:
-                                    st.error(f"Document '{selected_doc}' does not exist.")
-
-                            # Option to download the document
-                            if os.path.exists(doc_path):  # Check if the file exists
-                                st.download_button("Download Document", open(doc_path, "rb").read(), file_name=selected_doc)
-                            else:
-                                st.error(f"Document '{selected_doc}' does not exist.")
-                    else:
-                        st.info("No documents found for this student.")
+                    # Handle document actions
+                    handle_document_actions(documents, student[2])
 
                     # Update student details
                     st.subheader("Update Student Details")
                     updated_name = st.text_input("Update Name:", value=student[1], key="update_name")
-                    updated_email = st.text_input("Update Email:", value=student[3], key="update_email")
+                    updated_session = st.text_input("Update Academic Session:", value=student[3], key="update_session")
                     updated_matric_number = st.text_input("Update Matric Number:", value=student[0], key="update_matric_number")
 
                     # Update face image
@@ -487,11 +590,33 @@ def streamlit_frontend():
                             f.write(new_document.read())
                         st.success(f"Document '{new_document.name}' uploaded successfully!")
 
+                        if st.button("Extract Text from New Document", key="extract_text_new_doc_button"):
+                            extracted_text = ""
+                            if new_document.name.endswith(".pdf"):
+                                extracted_text = extract_text_from_pdf(document_path)
+                            elif new_document.name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                image = Image.open(document_path)
+                                extracted_text = extract_text_from_image(image)
+
+                            st.subheader("Extracted Text:")
+                            st.write(extracted_text)
+
+                            if st.button("Save Extracted Text as Text", key="save_extracted_text_new_doc_button"):
+                                text_file_path = os.path.join(student[2], f"{new_document.name.rsplit('.', 1)[0]}_extracted.txt")
+                                with open(text_file_path, "w", encoding="utf-8") as txt_file:
+                                    txt_file.write(extracted_text)
+                                st.success(f"Extracted text saved as text file to '{text_file_path}'!")
+
                     # Save updated details
                     if st.button("Save Updates", key="save_updates_button"):
-                        query = '''UPDATE students SET matric_number = ?, name = ?, email = ? WHERE matric_number = ?'''
-                        execute_query(query, (updated_matric_number, updated_name, updated_email, matric_number))
-                        st.success(f"Student details updated for {updated_name} (Matric: {updated_matric_number}).")
+                        if updated_name and updated_matric_number and updated_session:
+                            update_student_details(student, updated_name, updated_matric_number, updated_session)
+                        else:
+                            st.error("Please fill in all the fields.")
+                else:
+                    st.info("No students found.")
+            else:
+                st.info("No students found.")
         else:
             st.info("No students found.")
 

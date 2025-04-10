@@ -1,1 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyd
+*.pyo
+*.so
+*.egg-info/
+dist/
+build/
+venv/
 .env
+.env.local
+
+# Database
+*.db
+*.sqlite
+*.db-journal
+
+# Streamlit
+.streamlit/
+
+# OS generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+*~
+*.bak
+
+# Student data (sensitive)
+students_data/
+
+# Face recognition models
+*.dat
+*.xml
+
+# Document processing temp files
+temp/
+tmp/
+
+# OCR cache
+*.cache
