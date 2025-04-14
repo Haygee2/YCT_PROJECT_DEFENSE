@@ -1,10 +1,8 @@
 import streamlit as st
 import requests
-import json
 import cv2
 import face_recognition
 import sqlite3
-from io import StringIO
 import docx
 from docx.shared import Pt
 import pytesseract
@@ -14,11 +12,7 @@ from dotenv import load_dotenv
 import numpy as np
 import base64  # For encoding/decoding facial data
 import os
-from pathlib import Path
 from PIL import Image
-import tempfile
-import imghdr
-import time
 
 # Load environment variables
 load_dotenv()
@@ -80,7 +74,8 @@ def get_admin_from_db(username):
         try:
             face_encoding = np.frombuffer(base64.b64decode(face_encoding_str), dtype=np.float64)  # Decode face encoding
             return password, face_encoding
-        except:
+        except Exception as e:
+            st.error(f"Error decoding face encoding: {str(e)}")
             return password, None
     return None, None
 
@@ -166,7 +161,8 @@ def is_valid_image(image_bytes):
     try:
         Image.open(io.BytesIO(image_bytes)).verify()
         return True
-    except:
+    except Exception as e:
+        st.error(f"Invalid image file: {str(e)}")
         return False
 
 def extract_text_from_image(image_bytes):
@@ -256,7 +252,8 @@ def clean_extracted_text_with_ai(raw_text):
             error_msg = response.text
             try:
                 error_detail = response.json().get("error", {}).get("message", error_msg)
-            except:
+            except ValueError:
+                # If JSON parsing fails, use the raw error message
                 error_detail = error_msg
             
             st.error(f"AI processing failed (Status {response.status_code}): {error_detail}")
@@ -477,20 +474,7 @@ def search_students(search_term, search_by="name", program_type=None, class_leve
                         
     return results
 
-def is_valid_image(filepath):
-    """Check if file is a valid image"""
-    try:
-        # First check the file header
-        image_type = imghdr.what(filepath)
-        if image_type not in ['jpeg', 'png', 'gif', 'bmp']:
-            return False
-        
-        # Then try to open with PIL
-        with Image.open(filepath) as img:
-            img.verify()
-        return True
-    except:
-        return False
+# Removed duplicate definition of is_valid_image
 
 # Initialize databases
 init_db()
@@ -590,7 +574,7 @@ if current_page == "Admin Dashboard":
                                             raw_text = extract_text_from_pdf(file_bytes)
                                             if not raw_text or len(raw_text) < 10:  # If extraction seems incomplete
                                                 raise Exception("Direct extraction failed - trying OCR")
-                                        except:
+                                        except Exception:
                                             st.warning("Using OCR for PDF text extraction...")
                                             raw_text = extract_text_from_image(file_bytes)  # OCR fallback
                                     elif file_type.startswith("image/"):

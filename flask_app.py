@@ -1,20 +1,13 @@
 import streamlit as st
-import requests
-import json
+import os
 import cv2
 import face_recognition
 import sqlite3
-from io import StringIO
-import io
-from dotenv import load_dotenv
 import numpy as np
 import base64  # For encoding/decoding facial data
-import os
-from pathlib import Path
 from PIL import Image
-import tempfile
 import imghdr
-import time
+
 
 # SQLite database setup
 def init_db():
@@ -72,7 +65,8 @@ def get_admin_from_db(username):
         try:
             face_encoding = np.frombuffer(base64.b64decode(face_encoding_str), dtype=np.float64)  # Decode face encoding
             return password, face_encoding
-        except:
+        except Exception as e:
+            st.error(f"Error decoding face encoding: {str(e)}")
             return password, None
     return None, None
 
@@ -295,7 +289,8 @@ def is_valid_image(filepath):
         with Image.open(filepath) as img:
             img.verify()
         return True
-    except:
+    except Exception as e:
+        print(f"Error validating image {filepath}: {str(e)}")
         return False
 
 # Initialize databases
