@@ -1,764 +1,870 @@
-import os
-import sqlite3
-import pytesseract
 import streamlit as st
-from openai import OpenAI
+import requests
+import json
+import cv2
+import face_recognition
+import sqlite3
+from io import StringIO
+import docx
+from docx.shared import Pt
+import pytesseract
+import io
+from pdf2image import convert_from_bytes
+from dotenv import load_dotenv
+import numpy as np
+import base64  # For encoding/decoding facial data
+import os
+from pathlib import Path
 from PIL import Image
-import fitz  # PyMuPDF
-import cv2
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
-import time  # Add this import for the delay
-from dotenv import load_dotenv  # Add this import
-from chatbot import chat_with_ai  # Add this import
-import asyncio  # Add this import
-import numpy as np  # Add this import
+import tempfile
+import imghdr
+import time
 
-# Check for face_recognition availability
-try:
-    import face_recognition  # Add this import
-    FACE_RECOGNITION_AVAILABLE = True
-except ImportError:
-    FACE_RECOGNITION_AVAILABLE = False
-    st.warning("Facial recognition features are unavailable because the 'face_recognition' library is not installed.")
+# Load environment variables
+load_dotenv()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# Load environment variables from .env file
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-load_dotenv(dotenv_path)
-
-# Debugging: Print the current working directory and list files
-print(f"Current working directory: {os.getcwd()}")
-print(f"Files in the current directory: {os.listdir(os.getcwd())}")
-
-# Verify if the environment variable is loaded
-api_key = os.getenv('OPENROUTER_API_KEY')
-if not api_key:
-    st.error("Error: OPENROUTER_API_KEY not found in environment variables. Please check your .env file.")
-else:
-    st.success("OPENROUTER_API_KEY loaded successfully.")
-
-# Set up OpenAI API (replace with your API key)
-OPENROUTER_API_KEY = api_key
-if not OPENROUTER_API_KEY:
-    st.error("API key not found. Please set the OPENROUTER_API_KEY in the .env file.")
-else:
-    try:
-        client = OpenAI(
-            base_url="https://api.openai.com/v1",
-            api_key=OPENROUTER_API_KEY
-        )
-        st.success("OpenAI client initialized successfully.")
-    except Exception as e:
-        st.error(f"Failed to initialize OpenAI client: {e}")
-
-# Set the path to Tesseract-OCR executable
-if os.name == 'nt':  # Windows
-    tesseract_cmd = os.path.join("C:", "Program Files", "Tesseract-OCR", "tesseract.exe")
-    if not os.path.exists(tesseract_cmd):
-        st.error("Tesseract executable not found at the specified path. Please install Tesseract OCR and ensure the path is correct.")
-        raise FileNotFoundError("Tesseract executable not found.")
-    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-    os.environ["TESSDATA_PREFIX"] = os.path.join("C:", "Program Files", "Tesseract-OCR", "tessdata")
-
-# Verify OpenCV installation
-import cv2
-print(cv2.__version__)  # Check OpenCV version
-print(cv2.getBuildInformation())  # Check if compiled with V4L support
-
-# Database setup
-DB_PATH = "students.db"
-FACE_ENCODINGS_DIR = "face_encodings"
-os.makedirs(FACE_ENCODINGS_DIR, exist_ok=True)
-
+# SQLite database setup
 def init_db():
-    """Initialize the database and create the students table if it doesn't exist."""
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS students (
-                            matric_number TEXT PRIMARY KEY,
-                            name TEXT,
-                            folder TEXT,
-                            face_image TEXT,
-                            face_encoding_path TEXT,
-                            email TEXT)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS activity_logs (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            user TEXT,
-                            action TEXT,
-                            timestamp TEXT)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS document_versions (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            matric_number TEXT,
-                            document_name TEXT,
-                            version INTEGER,
-                            file_path TEXT,
-                            text_file_path TEXT,
-                            timestamp TEXT)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-                            username TEXT PRIMARY KEY,
-                            password TEXT,
-                            role TEXT)''')  # Add users table for sign-up and login
-        
-        # Migration logic to add the email column if it doesn't exist
-        cursor.execute("PRAGMA table_info(students)")
-        columns = [column[1] for column in cursor.fetchall()]
-        if "email" not in columns:
-            cursor.execute("ALTER TABLE students ADD COLUMN email TEXT")
-            conn.commit()
-        
-        # Migration logic to add the text_file_path column if it doesn't exist
-        cursor.execute("PRAGMA table_info(document_versions)")
-        columns = [column[1] for column in cursor.fetchall()]
-        if "text_file_path" not in columns:
-            cursor.execute("ALTER TABLE document_versions ADD COLUMN text_file_path TEXT")
-            conn.commit()
+    conn = sqlite3.connect("admins.db")
+    cursor = conn.cursor()
 
-# Call the init_db function to ensure the database is initialized
+    # Check if the face_encoding column exists
+    cursor.execute("PRAGMA table_info(admins)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if "face_encoding" not in columns:
+        # Backup existing data
+        cursor.execute("SELECT username, password FROM admins")
+        existing_data = cursor.fetchall()
+
+        # Recreate the table with the new schema
+        cursor.execute("DROP TABLE IF EXISTS admins")
+        cursor.execute("""
+            CREATE TABLE admins (
+                username TEXT PRIMARY KEY,
+                password TEXT,
+                face_encoding TEXT
+            )
+        """)
+
+        # Restore existing data
+        for username, password in existing_data:
+            cursor.execute("INSERT INTO admins (username, password) VALUES (?, ?)", (username, password))
+
+    conn.commit()
+    conn.close()
+
+def add_admin_to_db(username, password, face_encoding):
+    conn = sqlite3.connect("admins.db")
+    cursor = conn.cursor()
+    
+    if isinstance(face_encoding, np.ndarray):
+        face_encoding_str = base64.b64encode(face_encoding.tobytes()).decode("utf-8")
+    else:
+        face_encoding_str = base64.b64encode(face_encoding).decode("utf-8")
+    cursor.execute("INSERT INTO admins (username, password, face_encoding) VALUES (?, ?, ?)", 
+                   (username, password, face_encoding_str))
+    conn.commit()
+    conn.close()
+
+def get_admin_from_db(username):
+    conn = sqlite3.connect("admins.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT password, face_encoding FROM admins WHERE username = ?", (username,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        password, face_encoding_str = result
+        if face_encoding_str is None:  # Handle NULL face_encoding
+            return password, None
+        try:
+            face_encoding = np.frombuffer(base64.b64decode(face_encoding_str), dtype=np.float64)  # Decode face encoding
+            return password, face_encoding
+        except:
+            return password, None
+    return None, None
+
+def delete_admin_from_db(username):
+    conn = sqlite3.connect("admins.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM admins WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
+
+# Facial recognition functions using face_recognition
+def capture_face():
+    st.write("Initializing webcam for face capture...")
+    cap = cv2.VideoCapture(0)
+    st.write("Press 'c' to capture your face.")
+    face_encoding = None
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            st.error("Failed to access webcam.")
+            break
+
+        cv2.imshow("Face Capture", frame)
+        key = cv2.waitKey(1)
+
+        if key == ord('c'):  # Press 'c' to capture
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            face_locations = face_recognition.face_locations(rgb_frame)
+            if len(face_locations) == 1:  # Ensure only one face is captured
+                face_encoding = face_recognition.face_encodings(rgb_frame, face_locations)[0]
+                st.write("Face captured successfully!")
+            else:
+                st.error("Please ensure only one face is visible.")
+            break
+        elif key == ord('q'):  # Press 'q' to quit
+            st.write("Face capture canceled.")
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    return face_encoding
+
+def verify_face(stored_encoding):
+    st.write("Initializing webcam for face verification...")
+    cap = cv2.VideoCapture(0)
+    st.write("Press 'v' to verify your face.")
+    verified = False
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            st.error("Failed to access webcam.")
+            break
+
+        cv2.imshow("Face Verification", frame)
+        key = cv2.waitKey(1)
+
+        if key == ord('v'):  # Press 'v' to verify
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            face_locations = face_recognition.face_locations(rgb_frame)
+            if len(face_locations) == 1:  # Ensure only one face is visible
+                current_encoding = face_recognition.face_encodings(rgb_frame, face_locations)[0]
+                # Use a tolerance value for robust comparison
+                verified = face_recognition.compare_faces([stored_encoding], current_encoding, tolerance=0.6)[0]
+                if verified:
+                    st.write("Face verification successful!")
+                else:
+                    st.error("Face verification failed.")
+            else:
+                st.error("Please ensure only one face is visible.")
+            break
+        elif key == ord('q'):  # Press 'q' to quit
+            st.write("Face verification canceled.")
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    return verified  # Make sure this return statement is at the end of the function
+
+def is_valid_image(image_bytes):
+    """Verify if the uploaded file is a valid image"""
+    try:
+        Image.open(io.BytesIO(image_bytes)).verify()
+        return True
+    except:
+        return False
+
+def extract_text_from_image(image_bytes):
+    """Extract text from image using OCR"""
+    try:
+        # Convert bytes to PIL Image
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Convert to RGB if needed (Tesseract expects RGB)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+            
+        # Use pytesseract to extract text
+        text = pytesseract.image_to_string(image)
+        return text.strip()
+    except Exception as e:
+        st.error(f"Image extraction failed: {str(e)}")
+        return None
+    
+def extract_text_from_pdf(pdf_bytes):
+    """Extract text from PDF using OCR"""
+    try:
+        images = convert_from_bytes(pdf_bytes)
+        text = ""
+        for image in images:
+            text += pytesseract.image_to_string(image) + "\n"
+        return text.strip()
+    except Exception as e:
+        st.error(f"PDF extraction failed: {str(e)}")
+        return None
+    
+def clean_extracted_text_with_ai(raw_text):
+    """Use AI to clean and structure extracted text with robust error handling"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        # Truncate very long text to stay within token limits
+        max_length = 12000  # OpenRouter's limit for most models
+        if len(raw_text) > max_length:
+            raw_text = raw_text[:max_length]
+            st.warning("Document was truncated to fit AI processing limits")
+        
+        prompt = f"""
+        Clean and structure this academic document exactly as it appears in the original.
+        PRESERVE ALL FORMATTING, SPACING, and ALIGNMENT.
+        Only correct obvious OCR errors when absolutely certain.
+        Maintain all numbers, grades, and codes exactly as shown.
+        
+        Input Document:
+        {raw_text}
+        
+        Cleaned Output:
+        """
+        
+        payload = {
+            "model": "deepseek/deepseek-r1:free" or "deepseek/deepseek-v3-base:free",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,  # Lower temperature for more consistent results
+            "max_tokens": 4000
+        }
+        
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30  # Added timeout
+        )
+        
+        # Check for successful response
+        if response.status_code == 200:
+            response_data = response.json()
+            
+            # Handle different response formats
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                return response_data["choices"][0]["message"]["content"]
+            elif "message" in response_data:  # Some APIs use this format
+                return response_data["message"]["content"]
+            else:
+                st.error("Unexpected API response format")
+                return raw_text  # Fallback to original text
+        
+        # Handle API errors
+        else:
+            error_msg = response.text
+            try:
+                error_detail = response.json().get("error", {}).get("message", error_msg)
+            except:
+                error_detail = error_msg
+            
+            st.error(f"AI processing failed (Status {response.status_code}): {error_detail}")
+            return raw_text  # Fallback to original text
+            
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error during AI processing: {str(e)}")
+        return raw_text
+    except Exception as e:
+        st.error(f"Unexpected error during AI cleaning: {str(e)}")
+        return raw_text
+    
+def process_uploaded_file(uploaded_file, extract_txt=True, extract_docx=True):
+    """Handle both PDF and image files"""
+    file_bytes = uploaded_file.getvalue()
+    file_type = uploaded_file.type
+    
+    results = {'original_path': None, 'txt_path': None, 'docx_path': None}
+    
+    try:
+        # Save original file first
+        results['original_path'] = save_student_file(name, matric_number, session, uploaded_file)
+        
+        # Process based on file type
+        if file_type == "application/pdf":
+            raw_text = extract_text_from_pdf(file_bytes)
+        elif file_type in ["image/jpeg", "image/png", "image/jpg"]:
+            if not is_valid_image(file_bytes):
+                raise ValueError("Invalid image file")
+            raw_text = extract_text_from_image(file_bytes)
+        else:
+            raise ValueError("Unsupported file type")
+        
+        if raw_text:
+            cleaned_text = clean_extracted_text_with_ai(raw_text)
+            
+            if extract_txt:
+                results['txt_path'] = save_as_text_file(cleaned_text, results['original_path'])
+            
+            if extract_docx:
+                results['docx_path'] = save_as_word_file(cleaned_text, results['original_path'])
+        
+        return results
+        
+    except Exception as e:
+        st.error(f"Processing failed: {str(e)}")
+        # Clean up partially created files
+        for path in results.values():
+            if path and os.path.exists(path):
+                os.remove(path)
+        return None
+    
+def save_as_text_file(text_content, original_file_path):
+    """Save extracted text as .txt file in same directory"""
+    try:
+        base_path = os.path.splitext(original_file_path)[0]
+        txt_path = f"{base_path}_extracted.txt"
+        
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(text_content)
+        return txt_path
+    except Exception as e:
+        st.error(f"Error saving text file: {str(e)}")
+        return None
+    
+def save_as_word_file(text_content, original_file_path):
+    """Save extracted text as .docx file"""
+    try:
+        base_path = os.path.splitext(original_file_path)[0]
+        docx_path = f"{base_path}_extracted.docx"
+        
+        doc = docx.Document()
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Courier New'  # Monospace for alignment preservation
+        font.size = Pt(10)
+        
+        for line in text_content.split('\n'):
+            doc.add_paragraph(line)
+        
+        doc.save(docx_path)
+        return docx_path
+    except Exception as e:
+        st.error(f"Error saving Word file: {str(e)}")
+        return None  
+
+# Ensure a directory for storing student data files
+os.makedirs("students_data", exist_ok=True)
+
+# ================= STUDENT FILE SYSTEM MANAGEMENT =================
+def save_student_file(name, matric_number, session, program_type, class_level, uploaded_file):
+    """Save new student file in organized folder structure"""
+    try:
+        # Validate inputs
+        if not all([name, matric_number, session, uploaded_file]):
+            raise ValueError("All fields must be filled")
+        
+        # Create safe folder names
+        def sanitize(text):
+            return "".join(c if c.isalnum() or c in (' ', '-', '_') else "_" for c in str(text))
+        
+        safe_session = sanitize(session)
+        safe_program = sanitize(program_type)
+        safe_class = sanitize(class_level)
+        safe_name = sanitize(name).replace(" ", "_")
+        last_3_matric = str(matric_number)[-3:].zfill(3)  # Ensure 3 digits
+        
+        # Create folder structure
+        base_dir = os.path.abspath("students_data")
+        student_dir = os.path.join(base_dir, safe_session, safe_program, safe_class, f"{safe_name}_{last_3_matric}")
+        
+        os.makedirs(student_dir, exist_ok=False)  # Create student folder if it doesn't exist
+        file_path = os.path.join(student_dir, uploaded_file.name)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+         # Extract and save text versions for supported file types
+        file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+        if file_ext in ['.pdf', '.jpg', '.jpeg', '.png']:
+            with open(file_path, "rb") as f:
+                file_bytes = f.read()
+            
+            if file_ext == '.pdf':
+                raw_text = extract_text_from_pdf(file_bytes)
+            else:
+                raw_text = extract_text_from_image(file_bytes)
+            
+            if raw_text:
+                cleaned_text = clean_extracted_text_with_ai(raw_text)
+                if cleaned_text:
+                    save_as_text_file(cleaned_text, file_path)
+                    save_as_word_file(cleaned_text, file_path)
+            
+        return file_path
+    except Exception as e:
+        raise Exception(f"Error saving file: {str(e)}")
+
+def search_students(search_term, search_by="name", program_type=None, class_level=None):
+    """Search students with file validation"""
+    results = []
+    base_dir = os.path.abspath("students_data")
+    
+    if not os.path.exists(base_dir):
+        return results
+    
+    for session in os.listdir(base_dir):
+        session_dir = os.path.join(base_dir, session)
+        if not os.path.isdir(session_dir):
+            continue
+        
+        for program in os.listdir(session_dir):
+            if program_type and program.lower() != program_type.lower():
+                continue
+            
+            program_dir = os.path.join(session_dir, program)
+            if not os.path.isdir(program_dir):
+                continue
+            
+            for class_lvl in os.listdir(program_dir):
+                if class_lvl and class_lvl.lower() != class_lvl.lower():
+                    continue
+                
+                class_dir = os.path.join(program_dir, class_lvl)
+                if not os.path.isdir(class_dir):
+                    continue
+            
+                for student_folder in os.listdir(class_dir):
+                    student_dir = os.path.join(class_dir, student_folder)
+                    if not os.path.isdir(student_dir):
+                        continue
+                
+                    try:
+                        parts = student_folder.rsplit("_", 1)
+                        if len(parts) != 2:
+                            continue
+                            
+                        name = parts[0].replace("_", " ")
+                        last_3_matric = parts[1]
+                        
+                        # Search matching
+                        match = False
+                        search_term = str(search_term).lower()
+                        
+                        if search_by == "name" and search_term in name.lower():
+                            match = True
+                        elif search_by == "matric" and search_term in last_3_matric:
+                            match = True
+                        elif search_by == "session" and search_term in session.lower():
+                            match = True
+                            
+                        if match:
+                            valid_files = []
+                            for filename in os.listdir(student_dir):
+                                file_path = os.path.join(student_dir, filename)
+                                if os.path.isfile(file_path):
+                                    file_type = os.path.splitext(filename)[1].lower()
+                                    
+                                    if file_type in [".jpg", ".jpeg", ".png"] and not is_valid_image(file_path):
+                                        continue
+                                        
+                                    valid_files.append({
+                                        "path": file_path,
+                                        "type": file_type
+                                    })
+                            
+                            results.append({
+                                "name": name,
+                                "matric": last_3_matric,
+                                "session": session,
+                                "program": program,
+                                "class_level": class_lvl,
+                                "files": valid_files,
+                                "has_files": bool(valid_files)
+                            })
+                    except Exception as e:
+                        print(f"Error processing {student_folder}: {str(e)}")
+                        continue
+                        
+    return results
+
+def is_valid_image(filepath):
+    """Check if file is a valid image"""
+    try:
+        # First check the file header
+        image_type = imghdr.what(filepath)
+        if image_type not in ['jpeg', 'png', 'gif', 'bmp']:
+            return False
+        
+        # Then try to open with PIL
+        with Image.open(filepath) as img:
+            img.verify()
+        return True
+    except:
+        return False
+
+# Initialize databases
 init_db()
 
-def execute_query(query, params=(), fetchone=False, fetchall=False):
-    """General function to execute queries safely."""
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
 
-            if fetchone:
-                return cursor.fetchone()
-            elif fetchall:
-                return cursor.fetchall()
+# Check query parameters to determine the current page
+query_params = st.query_params
+current_page = st.session_state.get("current_page", query_params.get("page", ["Sign In"])[0])
+
+# Check if the user is authenticated
+if current_page == "Admin Dashboard" and not st.session_state.authenticated:
+    st.warning("Please sign in to access the admin dashboard.")
+    st.query_params["page"]= "Sign In"
+    st.rerun()
+
+# Authentication check at the start
+if current_page == "Admin Dashboard":
+    # ===== AUTHENTICATED ADMIN DASHBOARD =====
+    st.sidebar.title("Admin Dashboard")
+    admin_page = st.sidebar.selectbox("Menu", [
+        "Upload Student Data", 
+        "Search Student Data",
+    ])
+    
+        # Sign Out button
+    if st.sidebar.button("Sign Out"):
+        st.session_state.authenticated = False
+        st.query_params["page"] = "Sign In"
+        st.rerun()
+
+        # Admin Dashboard Pages
+    if admin_page == "Upload Student Data":
+        st.title("Upload Student Data")
+        
+        if 'download_docx' not in st.session_state:
+            st.session_state.download_docx = False
             
-            conn.commit()
-            return None
-    except sqlite3.Error as e:
-        return {"error": str(e)}
+        with st.form("upload_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                # Student details input fields
+                name = st.text_input("Student Name", key="student_name")
+                matric_number = st.text_input("Matric Number", key="matric_number")
+                session = st.text_input("Session (e.g., 2022-2023)", key="session")
+                
+            with col2:        
+                program_type = st.selectbox("Program Type", ["Fulltime", "Parttime"], key="program_type_select")
 
-def get_user(username):
-    """Fetch user details by username."""
-    return execute_query("SELECT username, password, role FROM users WHERE username = ?", (username,), fetchone=True)
-
-def store_user(username, password, role):
-    """Stores a new user in the database."""
-    query = '''INSERT INTO users (username, password, role) VALUES (?, ?, ?)'''
-    execute_query(query, (username, password, role))
-
-def get_student_info(matric_number):
-    """Fetch student details by matric_number."""
-    return execute_query("SELECT matric_number, name, folder, face_image, face_encoding_path, email FROM students WHERE matric_number = ?", (matric_number,), fetchone=True)
-
-def get_all_students():
-    """Fetch all students from the database."""
-    return execute_query("SELECT matric_number, name FROM students", fetchall=True)
-
-def store_student(matric_number, name, folder, face_image_path="", face_encoding_path="", email=""):
-    """Stores or updates student information in the database."""
-    query = '''INSERT OR REPLACE INTO students (matric_number, name, folder, face_image, face_encoding_path, email) 
-               VALUES (?, ?, ?, ?, ?, ?)'''
-    execute_query(query, (matric_number, name, folder, face_image_path, face_encoding_path, email))
-
-def get_student_folder(matric_number, name):
-    """Retrieve or create the student's folder path."""
-    student = get_student_info(matric_number)
-    
-    if student:
-        folder_path = student[2]  # Folder path from database
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path, exist_ok=True)
-        return folder_path
-    else:
-        folder_path = os.path.join("students_data", f"{name}_{matric_number[-3:]}")
-        os.makedirs(folder_path, exist_ok=True)
-        store_student(matric_number, name, folder_path)  # Store in DB
-        return folder_path
-
-def preprocess_image(image):
-    """Preprocess the image for better OCR results."""
-    # Convert to grayscale
-    gray = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2GRAY)
-    
-    # Resize the image
-    scale_percent = 150  # Percent of original size
-    width = int(gray.shape[1] * scale_percent / 100)
-    height = int(gray.shape[0] * scale_percent / 100)
-    dim = (width, height)
-    resized = cv2.resize(gray, dim, interpolation=cv2.INTER_AREA)
-    
-    # Apply binary thresholding
-    _, thresh = cv2.threshold(resized, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # Denoise the image
-    denoised = cv2.fastNlMeansDenoising(thresh, None, 30, 7, 21)
-    
-    # Sharpen the image
-    kernel = np.array([[0, -1, 0], [-1, 5,-1], [0, -1, 0]])
-    sharpened = cv2.filter2D(denoised, -1, kernel)
-    
-    return Image.fromarray(sharpened)
-
-def extract_text_from_image(image):
-    """Extract text from an image using Tesseract OCR."""
-    try:
-        # Preprocess the image
-        preprocessed_image = preprocess_image(image)
+                # Class level selection
+                class_level = st.selectbox("Class Level", ["ND1", "ND2", "ND3", "HND1", "HND2", "HND3"], key="class_level_select")
         
-        return pytesseract.image_to_string(preprocessed_image)
-    except pytesseract.TesseractNotFoundError:
-        st.error("Tesseract is not installed or it's not in your PATH. Please install Tesseract OCR and try again.")
-        return "OCR Error: Tesseract is not installed or it's not in your PATH."
-    except Exception as e:
-        st.error(f"OCR Error: {e}")
-        return f"OCR Error: {e}"
-
-def pdf_to_images(pdf_path):
-    """Convert PDF pages to images."""
-    images = []
-    try:
-        doc = fitz.open(pdf_path)
-        for page in doc:
-            pix = page.get_pixmap()
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            images.append(img)
-    except Exception as e:
-        st.error(f"Error processing PDF: {e}")
-    
-    return images
-
-def save_document(folder, file, matric_number):
-    """Save uploaded documents (PDF or image) and extract text if necessary."""
-    os.makedirs(folder, exist_ok=True)
-    file_path = os.path.join(folder, file.name)
-
-    file_content = file.read()  # Read file content into memory
-
-    with open(file_path, "wb") as f:
-        f.write(file_content)
-
-    # Extract text if it's a PDF or image
-    text = ""
-    if file.name.endswith(".pdf"):
-        with st.spinner('Processing PDF document...'):
-            images = pdf_to_images(file_path)
-            text = "".join(extract_text_from_image(img) for img in images)
-    elif file.name.lower().endswith(('.jpg', '.jpeg', '.png')):
-        image = Image.open(file_path)
-        text = extract_text_from_image(image)
-
-    # Save extracted text to a .txt file
-    text_file_path = file_path.rsplit('.', 1)[0] + ".txt"
-    with open(text_file_path, "w", encoding="utf-8") as txt_file:
-        txt_file.write(text)
-
-    # Save document version
-    save_document_version(matric_number, file.name, file_path, text_file_path)
-
-    return file_path, text_file_path
-
-def update_document(folder, file, matric_number):
-    """Update an existing document (PDF or image) and extract text if necessary."""
-    file_path = os.path.join(folder, file.name)
-
-    file_content = file.read()  # Read file content into memory
-
-    with open(file_path, "wb") as f:
-        f.write(file_content)
-
-    # Extract text if it's a PDF or image
-    text = ""
-    if file.name.endswith(".pdf"):
-        with st.spinner('Processing PDF document...'):
-            images = pdf_to_images(file_path)
-            text = "".join(extract_text_from_image(img) for img in images)
-    elif file.name.lower().endswith(('.jpg', '.jpeg', '.png')):
-        image = Image.open(file_path)
-        text = extract_text_from_image(image)
-
-    # Save extracted text to a .txt file
-    text_file_path = file_path.rsplit('.', 1)[0] + ".txt"
-    with open(text_file_path, "w", encoding="utf-8") as txt_file:
-        txt_file.write(text)
-
-    # Save document version
-    save_document_version(matric_number, file.name, file_path, text_file_path)
-
-    return file_path, text_file_path
-
-def get_latest_document_version(matric_number, document_name):
-    """Get the latest version number of a document for a student."""
-    query = '''SELECT MAX(version) FROM document_versions WHERE matric_number = ? AND document_name = ?'''
-    result = execute_query(query, (matric_number, document_name), fetchone=True)
-    return result[0] if result[0] is not None else 0
-
-def save_document_version(matric_number, document_name, file_path, text_file_path):
-    """Save a new version of the document."""
-    version = get_latest_document_version(matric_number, document_name) + 1
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    query = '''INSERT INTO document_versions (matric_number, document_name, version, file_path, text_file_path, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?)'''
-    execute_query(query, (matric_number, document_name, version, file_path, text_file_path, timestamp))
-
-def capture_face_streamlit(student_folder):
-    """Capture face using Streamlit's camera input."""
-    if not FACE_RECOGNITION_AVAILABLE:
-        st.error("Facial recognition is not supported in this environment.")
-        return
-    st.title("Capture Face Image")
-    img_file = st.camera_input("Take a picture")
-    if img_file:
-        try:
-            temp_image_path = os.path.join(student_folder, "temp_captured_face.jpg")
-            with open(temp_image_path, "wb") as f:
-                f.write(img_file.getvalue())
-
-            captured_image = face_recognition.load_image_file(temp_image_path)
-            captured_encodings = face_recognition.face_encodings(captured_image)
-
-            if len(captured_encodings) > 0:
-                captured_encoding = captured_encodings[0]
-                face_encoding_path = os.path.join(student_folder, "face_encoding.npy")
-                np.save(face_encoding_path, captured_encoding)
-                st.success("Face captured and encoding saved successfully!")
-            else:
-                st.error("No face detected. Please try again.")
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
-        finally:
-            if os.path.exists(temp_image_path):
-                os.remove(temp_image_path)
-
-def verify_face(student_folder):
-    """Verify face using Streamlit's camera input."""
-    if not FACE_RECOGNITION_AVAILABLE:
-        st.error("Facial recognition is not supported in this environment.")
-        return False
-    st.title("Facial Recognition Verification")
-    img_file = st.camera_input("Capture your face for verification")
-    if img_file:
-        try:
-            temp_image_path = os.path.join(student_folder, "temp_captured_face.jpg")
-            with open(temp_image_path, "wb") as f:
-                f.write(img_file.getvalue())
-
-            captured_image = face_recognition.load_image_file(temp_image_path)
-            captured_encodings = face_recognition.face_encodings(captured_image)
-
-            if len(captured_encodings) > 0:
-                captured_encoding = captured_encodings[0]
-                face_encoding_path = os.path.join(student_folder, "face_encoding.npy")
-                if os.path.exists(face_encoding_path):
-                    stored_encoding = np.load(face_encoding_path)
-                    matches = face_recognition.compare_faces([stored_encoding], captured_encoding)
-                    if matches[0]:
-                        st.success("Face verified successfully!")
-                        return True
+                uploaded_file = st.file_uploader("Upload File", type=["pdf", "jpg", "jpeg", "png"], key="file_uploader")
+        
+            if uploaded_file:
+                with st.expander("File Preview"):
+                    if uploaded_file.type.startswith("image/"):
+                        st.image(uploaded_file, width=300)
                     else:
-                        st.error("Face verification failed. Please try again.")
-                else:
-                    st.error("No stored face encoding found.")
-            else:
-                st.error("No face detected. Please try again.")
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
-        finally:
-            if os.path.exists(temp_image_path):
-                os.remove(temp_image_path)
-    return False
-
-def ai_extract_text(image):
-    """Extract text from an image using AI."""
-    try:
-        response = client.Completions.create(
-            model="text-davinci-003",
-            prompt="Extract the text from this image: " + image,
-            max_tokens=1000
-        )
-        return response.choices[0].text.strip()
-    except Exception as e:
-        st.error(f"AI Text Extraction Error: {e}")
-        return f"AI Text Extraction Error: {e}"
-
-def ai_prompt_page():
-    """AI Study Helper Page."""
-    st.title("AI Study Helper")
-    
-    # Sidebar for navigation within the AI Study Helper
-    st.sidebar.title("AI Study Helper Navigation")
-    page = st.sidebar.radio("Go to", ["Ask a Question", "Extract Text from Image"], key="ai_nav")
-    
-    if page == "Ask a Question":
-        st.header("Ask a Question")
-        query = st.text_area("What can I help you with today:", height=150, key="query_input", on_change=submit_query)
-        if st.button("Submit") or st.session_state.get("submit_query", False):
-            response = chat_with_ai(query)
-            st.text_area("AI Response:", value=response, height=350, key="response_output")
-    
-    if page == "Extract Text from Image":
-        st.header("Extract Text from Image")
-        uploaded_file = st.file_uploader("Upload an image file", type=["jpg", "jpeg", "png", "pdf"], key="image_file")
-        if uploaded_file:
-            if uploaded_file.name.endswith(".pdf"):
-                images = pdf_to_images(uploaded_file)
-                extracted_text = "".join(ai_extract_text(img) for img in images)
-            else:
-                image = Image.open(uploaded_file)
-                extracted_text = ai_extract_text(image)
-            
-            st.text_area("Extracted Text:", value=extracted_text, height=350, key="extracted_text_output")
-
-def submit_query():
-    st.session_state.submit_query = True
-
-def list_student_documents(folder):
-    """List all documents for a student."""
-    if not os.path.exists(folder):
-        return []
-    return [f for f in os.listdir(folder) if f.endswith(('.txt', '.pdf', '.jpg', '.jpeg', '.png'))]
-
-def update_student_info(matric_number, name, folder, face_image_path="", face_encoding_path="", email=""):
-    """Update student information in the database."""
-    query = '''UPDATE students SET name = ?, folder = ?, face_image = ?, face_encoding_path = ?, email = ?
-               WHERE matric_number = ?'''
-    execute_query(query, (name, folder, face_image_path, face_encoding_path, email, matric_number))
-
-def log_activity(user, action):
-    """Log user activity."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    query = '''INSERT INTO activity_logs (user, action, timestamp) VALUES (?, ?, ?)'''
-    execute_query(query, (user, action, timestamp))
-
-def send_email_notification(to_email, subject, body):
-    """Send an email notification."""
-    from_email = "your_email@example.com"
-    from_password = "your_app_password"  # Use an app password if 2-Step Verification is enabled
-
-    msg = MIMEMultipart()
-    msg["From"] = from_email
-    msg["To"] = to_email
-    msg["Subject"] = subject
-
-    msg.attach(MIMEText(body, "plain"))
-
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(from_email, from_password)
-        text = msg.as_string()
-        server.sendmail(from_email, to_email, text)
-        server.quit()
-        print("Email sent successfully!")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
-
-def add_custom_css():
-    """Add custom CSS for a modern and interactive design."""
-    st.markdown("""
-        <style>
-        /* Main background and text color */
-        .main {
-            background-color: #1e1e1e;
-            color: #f5f5f5;
-        }
-        /* Sidebar styling */
-        .sidebar .sidebar-content {
-            background-color: #2b2b2b;
-            color: #f5f5f5;
-        }
-        .sidebar .sidebar-content a {
-            color: #f5f5f5;
-        }
-        .sidebar .sidebar-content a:hover {
-            color: #1db954;
-        }
-        /* Button styling */
-        .stButton>button {
-            background-color: #1db954;
-            color: white;
-            border: none;
-            border-radius: 25px;
-            padding: 10px 20px;
-            font-size: 16px;
-            transition: background-color 0.3s ease;
-        }
-        .stButton>button:hover {
-            background-color: #1ed760;
-        }
-        /* Text input styling */
-        .stTextInput>div>div>input {
-            border: 2px solid #1db954;
-            border-radius: 25px;
-            padding: 10px;
-            background-color: #2b2b2b;
-            color: #f5f5f5;
-        }
-        .stTextInput>div>div>input:focus {
-            border-color: #1ed760;
-        }
-        /* Radio button styling */
-        .stRadio>div>div>label {
-            font-size: 16px;
-            color: #f5f5f5;
-        }
-        .stRadio>div>div>div>input:checked+div {
-            background-color: #1db954;
-            color: white;
-        }
-        /* Header styling */
-        h1, h2, h3, h4, h5, h6 {
-            color: #1db954;
-        }
-        /* Spinner styling */
-        .stSpinner>div>div {
-            border-top-color: #1db954;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-def main():
-    # Add custom CSS
-    add_custom_css()
-
-    # Ensure the event loop is properly initialized
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
-
-    st.title("YABA COLLEGE OF TECHNOLOGY COMPUTER ENGINEERING DEPARTMENT")
-
-    st.sidebar.title("Navigation")
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-    if "verified_student" not in st.session_state:
-        st.session_state.verified_student = None
-    if "user_role" not in st.session_state:
-        st.session_state.user_role = None
-
-    if not st.session_state.logged_in:
-        page = st.sidebar.radio("Go to", ["Login", "Sign Up"], key="main_nav")
-    else:
-        if st.session_state.user_role == "Admin":
-            page = st.sidebar.radio("Go to", ["Admin Panel", "Manage Students", "Analytics Dashboard"], key="admin_nav")
-        else:
-            page = st.sidebar.radio("Go to", ["Student Panel", "AI Study Helper"], key="student_nav")
-
-    if page == "Login":
-        st.subheader("Login")
-        role = st.selectbox("Select Role:", ["Admin", "Student"], key="role_selectbox")
-        username = st.text_input("Username:", key="username_input")
-        password = st.text_input("Password:", type="password", key="password_input", on_change=submit_login)
+                        st.write(f"PDF file: {uploaded_file.name}")
+                        
+                col1, col2 = st.columns(2)
+                with col1:
+                    extract_txt = st.checkbox("Extract as Text", value=True, key="extract_txt")
+                with col2:
+                    extract_docx = st.checkbox("Extract as Word", value=True, key="extract_docx")
         
-        if st.button("Login", key="login_button") or st.session_state.get("submit_login", False):
-            user = get_user(username)
-            if user and user[1] == password and user[2] == role:
-                st.session_state.logged_in = True
-                st.session_state.user_role = role
-                st.success(f"{role} Login Successful!")
-                st.experimental_set_query_params(logged_in=True)
-                log_activity(username, f"{role} Login")
-                if role == "Student":
-                    st.session_state.verified_student = (username, password)
-            else:
-                st.error("Invalid Credentials")
-        st.stop()
-
-    if page == "Sign Up":
-        st.subheader("Sign Up")
-        new_username = st.text_input("New Username:", key="new_username_input")
-        new_password = st.text_input("New Password:", type="password", key="new_password_input")
-        new_role = st.radio("Select Role:", ["Admin", "Student"], key="new_role_radio")
-        
-        if st.button("Create Account", key="create_account_button"):
-            if get_user(new_username):
-                st.error("Username already exists. Please choose a different username.")
-            else:
-                store_user(new_username, new_password, new_role)
-                st.success("Account created successfully! You can now log in.")
-
-    if st.session_state.logged_in:
-        if st.sidebar.button("Log Out", key="logout_sidebar"):
-            st.session_state.logged_in = False
-            st.session_state.verified_student = None
-            st.session_state.user_role = None
-            st.experimental_set_query_params(logged_in=False)
-
-    if page == "Admin Panel" and st.session_state.user_role == "Admin":
-        st.subheader("Admin Panel: Upload Student Documents")
-        admin_matric = st.text_input("Enter Student Matric Number:", key="admin_matric").strip()
-        admin_name = st.text_input("Enter Student Name:", key="admin_name")
-        doc_file = st.file_uploader("Upload Document (Image or PDF)", type=["jpg", "png", "pdf"], key="doc_file")
-        admin_email = st.text_input("Enter Student Email (for notifications):", key="admin_email")
-
-        if st.button("Save Document", key="save_doc_button"):
-            if admin_matric and admin_name and doc_file:
-                with st.spinner('Saving document...'):
-                    folder = get_student_folder(admin_matric, admin_name)
-                    file_path, text_file_path = save_document(folder, doc_file, admin_matric)
-                    st.success(f"Data saved for {admin_name} (Matric: {admin_matric}).")
-                    log_activity(st.session_state.user_role, f"Uploaded document for {admin_matric}")
-                    if admin_email:
-                        send_email_notification(admin_email, "New Document Uploaded", f"A new document has been uploaded for {admin_name} (Matric: {admin_matric}).")
-            else:
-                st.error("Please enter all required details.")
-        
-        if st.button("Capture Student", key="capture_student_button"):
-            if admin_matric and admin_name:
-                folder = get_student_folder(admin_matric, admin_name)
-                capture_face_streamlit(folder)
-                log_activity(st.session_state.user_role, f"Captured face for {admin_matric}")
-            else:
-                st.error("Please enter the student's matric number and name.")
-
-    if page == "Manage Students" and st.session_state.user_role == "Admin":
-        st.subheader("Manage Students")
-        all_students = get_all_students()
-        if all_students:
-            selected_student = st.selectbox("Select a student to view details:", [f"{s[1]} ({s[0]})" for s in all_students], key="select_student")
-            if selected_student:
-                matric_number = selected_student.split('(')[-1].strip(')')
-                student = get_student_info(matric_number)
-                if student:
-                    st.write(f"Matric Number: {student[0]}")
-                    st.write(f"Name: {student[1]}")
-                    st.write(f"Folder: {student[2]}")
-                    if student[3] and os.path.exists(student[3]):
-                        st.image(student[3], caption="Registered Face", width=200)
-                    documents = list_student_documents(student[2])
-                    if documents:
-                        st.subheader("Documents")
-                        selected_doc = st.selectbox("Select a document to view:", documents, key="select_doc")
-                        if selected_doc:
-                            doc_path = os.path.join(student[2], selected_doc)
-                            if selected_doc.endswith('.txt'):
-                                if os.path.exists(doc_path):
-                                    if st.button("Show Document", key="show_doc_button"):
-                                        with open(doc_path, "r", encoding="utf-8") as file:
-                                            st.text_area(f"Content of {selected_doc}", file.read(), height=300)
-                            update_doc_file = st.file_uploader("Update Document (Image or PDF)", type=["jpg", "png", "pdf"], key="update_doc_file")
-                            if st.button("Save Document", key="update_doc_button"):
-                                if update_doc_file:
-                                    with st.spinner('Updating document...'):
-                                        file_path, text_file_path = update_document(student[2], update_doc_file, matric_number)
-                                        st.success(f"Document updated for {student[1]} (Matric: {matric_number}).")
-                                        log_activity(st.session_state.user_role, f"Updated document for {matric_number}")
-                                else:
-                                    st.error("Please upload a document to update.")
-                            if not selected_doc.endswith('.txt'):
-                                st.download_button(
-                                    label="Download Original Document",
-                                    data=open(doc_path, "rb").read(),
-                                    file_name=selected_doc,
-                                    mime="application/octet-stream"
-                                )
-                            if selected_doc.endswith('.txt'):
-                                st.download_button(
-                                    label="Download Text Document",
-                                    data=open(doc_path, "rb").read(),
-                                    file_name=selected_doc,
-                                    mime="text/plain"
-                                )
-                    else:
-                        st.info("No documents found for this student.")
-                    
-                    new_matric_number = st.text_input("Matric Number:", value=student[0], key="update_matric_number")
-                    new_name = st.text_input("Name:", value=student[1], key="update_name")
-                    new_email = st.text_input("Email:", value=student[5], key="update_email")
-                    
-                    if st.button("Update Details", key="update_details_button"):
-                        update_student_info(new_matric_number, new_name, student[2], student[3], student[4], new_email)
-                        st.success("Student details updated successfully.")
-                        log_activity(st.session_state.user_role, f"Updated details for {new_matric_number}")
-                        if new_email:
-                            send_email_notification(new_email, "Student Information Updated", f"Your information has been updated for {new_name} (Matric: {new_matric_number}).")
-                    
-                    if st.button("Recapture Face Image", key=f"recapture_face_button_{matric_number}"):
-                        capture_face_streamlit(student[2])
-                        log_activity(st.session_state.user_role, f"Recaptured face image for {new_matric_number}")
-
-                    doc_file = st.file_uploader("Upload Document (Image or PDF)", type=["jpg", "png", "pdf"], key="manage_doc_file")
-                    if st.button("Save Document", key="manage_save_doc_button"):
-                        if doc_file:
-                            with st.spinner('Saving document...'):
-                                folder = get_student_folder(matric_number, student[1])
-                                file_path, text_file_path = save_document(folder, doc_file, matric_number)
-                                st.success(f"Document saved for {student[1]} (Matric: {matric_number}).")
-                                log_activity(st.session_state.user_role, f"Uploaded document for {matric_number}")
+            # Submit button for file upload
+            submitted = st.form_submit_button("Upload Student Data")
                        
-        else:
-            st.info("No students found.")
-
-    if page == "Analytics Dashboard" and st.session_state.user_role == "Admin":
-        st.subheader("Analytics Dashboard")
-        total_students = len(get_all_students())
-        total_documents = execute_query("SELECT COUNT(*) FROM document_versions", fetchone=True)[0]
-        total_logins = execute_query("SELECT COUNT(*) FROM activity_logs WHERE action LIKE '%Login%'", fetchone=True)[0]
-        
-        st.write(f"Total Students: {total_students}")
-        st.write(f"Total Documents: {total_documents}")
-        st.write(f"Total Logins: {total_logins}")
-
-    if page == "Student Panel" and st.session_state.user_role == "Student":
-        st.subheader("Student Panel: Retrieve Information")
-        
-        verification_method = st.radio(
-            "Select verification method:",
-            ["Matric Number", "Facial Recognition"],
-            key="verification_method"
-        )
-        
-        if verification_method == "Matric Number":
-            student_matric = st.text_input("Enter Matric Number:", key="student_matric").strip()
-            
-            if st.button("Get Information", key="get_info_button") or st.session_state.get("submit_info", False):
-                if student_matric:
-                    student = get_student_info(student_matric)
-                    if student:
-                        st.session_state.verified_student = (student[0], student[1])
-                    else:
-                        st.error(f"No student found with matric number: {student_matric}")
+            if submitted:
+                if not all([name, matric_number, session, program_type, class_level, uploaded_file]):
+                    st.error("Please fill all required fields")
                 else:
-                    st.error("Please enter a matric number")
-        
-        elif verification_method == "Facial Recognition":
-            if st.button("Start Face Capture", key="start_face_capture_button"):
-                if st.session_state.verified_student:
-                    student_folder = get_student_folder(st.session_state.verified_student[0], st.session_state.verified_student[1])
-                    capture_face_streamlit(student_folder)
-                else:
-                    st.error("Please verify your matric number first.")
+                    try:
+                        file_path = save_student_file(
+                            name, matric_number, session, 
+                            program_type, class_level, uploaded_file
+                        )
+                        st.session_state.upload_success = True
+                        st.session_state.file_path = file_path
+                        st.success(f"File uploaded successfully: {file_path}")
+                    
+                        if extract_txt or extract_docx:
+                            with st.spinner("Extracting text content..."):
+                                with open(file_path, "rb") as f:
+                                    file_bytes = f.read()
+                        
+                                file_type = uploaded_file.type
+                                raw_text = None
+                    
+                                try:
+                                    if file_type == "application/pdf":
+                                        # NEW: PDF-specific extraction with fallback
+                                        try:
+                                            raw_text = extract_text_from_pdf(file_bytes)
+                                            if not raw_text or len(raw_text) < 10:  # If extraction seems incomplete
+                                                raise Exception("Direct extraction failed - trying OCR")
+                                        except:
+                                            st.warning("Using OCR for PDF text extraction...")
+                                            raw_text = extract_text_from_image(file_bytes)  # OCR fallback
+                                    elif file_type.startswith("image/"):
+                                        raw_text = extract_text_from_image(file_bytes)
+                                except Exception as e:
+                                    st.error(f"Extraction error: {str(e)}")
+                
+                                if raw_text:
+                                    with st.spinner("Cleaning text with AI..."):
+                                        cleaned_text = clean_extracted_text_with_ai(raw_text)
+                    
+                                    if extract_txt:
+                                        txt_path = save_as_text_file(cleaned_text, file_path)
+                                        st.success(f"Text version saved: {txt_path}")
 
-        if st.session_state.verified_student:
-            matric, name = st.session_state.verified_student
-            student = get_student_info(matric)
-            
-            if student:
-                folder = student[2]
-                if not verify_face(folder):
-                    st.error("Facial recognition failed. Please try again.")
-                    return
-                st.success(f"Welcome, {student[1]}!")
-                documents = list_student_documents(folder)
-                if documents:
-                    st.subheader("Your Documents")
-                    selected_doc = st.selectbox("Select a document to view:", documents)
-                    if selected_doc:
-                        doc_path = os.path.join(folder, selected_doc)
-                        if selected_doc.endswith('.txt'):
-                            with open(doc_path, "r", encoding="utf-8") as file:
-                                st.text_area(f"Content of {selected_doc}", file.read(), height=300)
-                        st.download_button("Download Document", open(doc_path, "rb").read(), file_name=selected_doc)
-                else:
-                    st.info("No documents found for your account.")
+                    
+                                    if extract_docx:
+                                        docx_path = save_as_word_file(cleaned_text, file_path)
+                                        st.session_state.docx_path = docx_path
+                                        st.session_state.download_docx = True
+                                        st.success(f"Word version saved: {docx_path}")
+
+                                else:
+                                    st.error("Text extraction failed")
+                
+                    except Exception as e:
+                        st.error(f"Upload failed: {str(e)}")
+                        if 'file_path' in locals() and os.path.exists(file_path):
+                            os.remove(file_path)
+                            
+        #Download button for the extracted Word file
+        if st.session_state.get('download_docx') and st.session_state.get('docx_path'):
+            with open(st.session_state.docx_path, "rb") as f:
+                st.download_button(
+                    "Download Extracted Word File",
+                    f.read(),
+                    file_name=os.path.basename(st.session_state.docx_path),
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="word_download"
+                )
+
+    # Search Student Data section
+    elif admin_page == "Search Student Data":
+        st.title("Search Student Data")
+        with st.form("search_form"):
+            search_term = st.text_input("Enter search term")
+            search_by = st.selectbox("Search by", ["Name", "Matric (last 3 digits)", "Session"])
+    
+            # New search options
+            program_type = st.selectbox("Filter by Program Type", ["ALL", "Fulltime", "Parttime"])
+            class_level = st.selectbox("Filter by Class Level", ["ALL", "ND1", "ND2", "ND3", "HND1", "HND2", "HND3"])
+    
+            search_submitted = st.form_submit_button("Search")
+
+        if search_submitted:
+            if not search_term.strip():
+                st.warning("Please enter a search term")
             else:
-                st.error("Student record not found. Please contact the admin.")
-        else:
-            st.error("Please log in to view your information.")
+                search_mapping = {
+                    "Name": "name",
+                    "Matric (last 3 digits)": "matric",
+                    "Session": "session"
+                }
+        
+                # Convert "ALL" to None for filtering
+                program_filter = None if program_type == "ALL" else program_type
+                class_filter = None if class_level == "ALL" else class_level
+        
+                results = search_students(search_term, search_mapping[search_by], program_filter, class_filter)
+                st.session_state["search_results"] = results  # Store results in session state
 
-    if page == "AI Study Helper" and st.session_state.user_role == "Student":
-        ai_prompt_page()
+        if "search_results" in st.session_state:
+            for student in st.session_state["search_results"]:
+                # Initialize session state if not exists
+                session_key = f"show_{student['matric']}"
+                if session_key not in st.session_state:
+                    st.session_state[session_key] = False
 
-def submit_login():
-    st.session_state.submit_login = True
+                # Student header with toggle button
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.subheader(f"{student['name']} - {student['matric']}")
+                    st.caption(f"Session: {student['session']}")
+            
+                with col2:
+                    if st.button(
+                        "View Details" if not st.session_state[session_key] else "Hide Details",
+                        key=f"toggle_{student['matric']}"
+                    ):
+                        st.session_state[session_key] = not st.session_state[session_key]
+                        st.rerun()  # Add this to force update
 
-if __name__ == "__main__":
-    main()
+                if st.session_state[session_key]:
+                    st.markdown("---")  # Visual separator
+                    if student['has_files']:
+                        for file in student['files']:
+                            st.subheader(os.path.basename(file['path']))
+            
+                            # Tabs for different views
+                            tab1, tab2, tab3 = st.tabs(["📄 Original", "✍️ Text", "⚙️ Actions"])
+            
+                            with tab1:
+                                if file['type'] == ".pdf":
+                                    try:
+                                        from PyPDF2 import PdfReader
+                                        with open(file['path'], "rb") as f:
+                                            pdf = PdfReader(f)
+                                            num_pages = len(pdf.pages)
+                        
+                                        if num_pages > 1:
+                                            page_num = st.selectbox(
+                                                "Select page",
+                                                range(1, num_pages+1),
+                                                key=f"page_{file['path']}"
+                                            ) - 1
+                                        else:
+                                            page_num = 0
+                        
+                                        page = pdf.pages[page_num]
+                                        st.text(page.extract_text())
+                                    except Exception as e:
+                                        st.warning(f"Couldn't preview PDF: {str(e)}")
+                                elif file['type'] in [".jpg", ".jpeg", ".png"]:
+                                    if is_valid_image(file['path']):
+                                        st.image(file['path'], width=500)
+                                    else:
+                                        st.warning("Corrupted image file")
+            
+                            with tab2:
+                                base_path = os.path.splitext(file['path'])[0]
+                                txt_path = f"{base_path}_extracted.txt"
+            
+                                if os.path.exists(txt_path):
+                                    with open(txt_path, "r", encoding="utf-8") as f:
+                                        text_content = f.read()
+                                        search_text = st.text_input("Search in text", key=f"search_{file['path']}")
+                    
+                                        if search_text:
+                                            highlighted = text_content.replace(
+                                                search_text,
+                                                f"**{search_text}**"
+                                            )
+                                            st.markdown(highlighted, unsafe_allow_html=True)
+                                        
+                                        else:
+                                            st.text_area(
+                                                "Extracted Text", 
+                                                text_content,
+                                                height=300,
+                                                key=f"preview_{file['path']}"
+                                            )
+                                else:
+                                    st.warning("No extracted text available")
+                                    if st.button("✨ Extract Text Now", key=f"quick_extract_{file['path']}"):
+                                        with st.spinner("Extracting..."):
+                                            with open(file['path'], "rb") as f:
+                                                file_bytes = f.read()
+                                                
+                                            if file['type'] == '.pdf':
+                                                raw_text = extract_text_from_pdf(file_bytes)
+                                            else:
+                                                raw_text = extract_text_from_image(file_bytes)
+
+                                            if raw_text:
+                                                cleaned_text = clean_extracted_text_with_ai(raw_text)
+                                                save_as_text_file(cleaned_text, file['path'])
+                                                save_as_word_file(cleaned_text, file['path'])
+                                                st.rerun()
+                                            else:
+                                                st.error("Extraction failed")
+            
+                            with tab3:
+                                base_path = os.path.splitext(file['path'])[0]
+                                txt_path = f"{base_path}_extracted.txt"
+                                docx_path = f"{base_path}_extracted.docx"
+
+                                # Actions column layout
+                                col1, col2 = st.columns(2)
+
+                                with col1:
+                                    if os.path.exists(txt_path):
+                                        with open(txt_path, "r", encoding="utf-8") as f:
+                                            st.download_button(
+                                                "📥 Download Text",
+                                                f.read(),
+                                                file_name=f"{os.path.basename(base_path)}.txt",
+                                                key=f"txt_{file['path']}"
+                                            )
+
+                                with col2:
+                                    if os.path.exists(docx_path):
+                                        with open(docx_path, "rb") as f:
+                                            st.download_button(
+                                                "📝 Download Word",
+                                                f.read(),
+                                                file_name=f"{os.path.basename(base_path)}.docx",
+                                                key=f"docx_{file['path']}"
+                                            )
+
+                                # Advanced options
+                                st.markdown("### Advanced Options")
+                                if st.button("🔄 Re-extract Text", key=f"re_extract_{file['path']}"):
+                                    with st.spinner("Re-extracting..."):
+                                        with open(file['path'], "rb") as f:
+                                            file_bytes = f.read()
+
+                                        if file['type'] == '.pdf':
+                                            raw_text = extract_text_from_pdf(file_bytes)
+                                        else:
+                                            raw_text = extract_text_from_image(file_bytes)
+
+                                        if raw_text:
+                                            cleaned_text = clean_extracted_text_with_ai(raw_text)
+                                            save_as_text_file(cleaned_text, file['path'])
+                                            save_as_word_file(cleaned_text, file['path'])
+                                            st.success("Re-extraction complete!")
+                                            st.rerun()
+                                        else:
+                                            st.error("Extraction failed")
+                    else:
+                        st.error("No matching records found")
+
+else:
+    # ===== AUTHENTICATION PAGES =====
+    st.sidebar.title("Authentication")
+    page = st.sidebar.selectbox("Menu", ["Sign In", "Sign Up", "Delete Admin"])
+
+    if page == "Sign In":
+        st.title("Sign In")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        
+        if st.button("Sign In"):
+            stored_password, stored_face_encoding = get_admin_from_db(username)
+            if stored_password and stored_password == password:
+                if stored_face_encoding is None or verify_face(stored_face_encoding):
+                    st.session_state.authenticated = True
+                    st.session_state.current_page = "Admin Dashboard"
+                    st.query_params["page"] = "Admin Dashboard"
+                    st.rerun()
+                else:
+                    st.error("Facial verification failed.")
+            else:
+                st.error("Invalid username or password.")
+
+    elif page == "Sign Up":
+        st.title("Sign Up")
+        new_username = st.text_input("New Username")
+        new_password = st.text_input("New Password", type="password")
+        
+        if st.button("Sign Up"):
+            stored_password, _ = get_admin_from_db(new_username)
+            if stored_password:
+                st.error("Username already exists.")
+            else:
+                face_encoding = capture_face()
+                if face_encoding is not None:
+                    add_admin_to_db(new_username, new_password, face_encoding.tobytes())
+                    st.success("Sign Up successful! Facial data captured.")
+                else:
+                    st.error("Face capture failed. Please try again.")
+
+    elif page == "Delete Admin":
+        st.title("Delete Admin")
+        del_username = st.text_input("Username")
+        del_password = st.text_input("Password", type="password")
+        
+        if st.button("Delete Admin"):
+            stored_password, stored_face_encoding = get_admin_from_db(del_username)
+            if stored_password and stored_password == del_password:
+                if stored_face_encoding is None or verify_face(stored_face_encoding):
+                    delete_admin_from_db(del_username)
+                    st.success("Admin deleted successfully!")
+                else:
+                    st.error("Facial verification failed. Please try again.")
+            else:
+                st.error("Invalid username or password.")
