@@ -41,7 +41,7 @@ Thumbs.db
 *~
 *.bak
 
-# Student data (sensitive)
+# Sensitive data
 students_data/
 admin_data/
 face_data/
