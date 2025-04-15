@@ -164,11 +164,11 @@ def process_uploaded_file(uploaded_file):
 os.makedirs("students_data", exist_ok=True)
 
 # ================= STUDENT FILE SYSTEM MANAGEMENT =================
-def save_student_file(name, matric_number, session, program_type, class_level, uploaded_file):
+def save_student_file(name, matric_number, session, program_type, class_level, semester, uploaded_file):
     """Save new student file in organized folder structure"""
     try:
         # Validate inputs
-        if not all([name, matric_number, session, uploaded_file]):
+        if not all([name, matric_number, session, semester, uploaded_file]):
             raise ValueError("All fields must be filled")
         
         # Create safe folder names
@@ -178,12 +178,13 @@ def save_student_file(name, matric_number, session, program_type, class_level, u
         safe_session = sanitize(session)
         safe_program = sanitize(program_type)
         safe_class = sanitize(class_level)
+        safe_semester = sanitize(semester)
         safe_name = sanitize(name).replace(" ", "_")
         last_3_matric = str(matric_number)[-3:].zfill(3)  # Ensure 3 digits
         
         # Create folder structure
         base_dir = os.path.abspath("students_data")
-        student_dir = os.path.join(base_dir, safe_session, safe_program, safe_class, f"{safe_name}_{last_3_matric}")
+        student_dir = os.path.join(base_dir, safe_session, safe_program, safe_class, safe_semester, f"{safe_name}_{last_3_matric}")
         
         os.makedirs(student_dir, exist_ok=False)  # Create student folder if it doesn't exist
         file_path = os.path.join(student_dir, uploaded_file.name)
@@ -222,11 +223,16 @@ def search_students(search_term, search_by="name", program_type=None, class_leve
                 class_dir = os.path.join(program_dir, class_lvl)
                 if not os.path.isdir(class_dir):
                     continue
-            
-                for student_folder in os.listdir(class_dir):
-                    student_dir = os.path.join(class_dir, student_folder)
-                    if not os.path.isdir(student_dir):
+                
+                for semester in os.listdir(class_dir):
+                    semester_dir = os.path.join(class_dir, semester)
+                    if not os.path.isdir(semester_dir):
                         continue
+            
+                    for student_folder in os.listdir(semester_dir):
+                        student_dir = os.path.join(semester_dir, student_folder)
+                        if not os.path.isdir(student_dir):
+                            continue
                 
                     try:
                         parts = student_folder.rsplit("_", 1)
@@ -268,6 +274,7 @@ def search_students(search_term, search_by="name", program_type=None, class_leve
                                 "session": session,
                                 "program": program,
                                 "class_level": class_lvl,
+                                "semester": semester,
                                 "files": valid_files,
                                 "has_files": bool(valid_files)
                             })
@@ -338,13 +345,11 @@ if current_page == "Admin Dashboard":
                 name = st.text_input("Student Name", key="student_name")
                 matric_number = st.text_input("Matric Number", key="matric_number")
                 session = st.text_input("Session (e.g., 2022-2023)", key="session")
+                semester = st.selectbox("Semester", ["First Semester", "Second Semester"], key="semester_select")
                 
             with col2:        
                 program_type = st.selectbox("Program Type", ["Fulltime", "Parttime"], key="program_type_select")
-
-                # Class level selection
                 class_level = st.selectbox("Class Level", ["ND1", "ND2", "ND3", "HND1", "HND2", "HND3"], key="class_level_select")
-        
                 uploaded_file = st.file_uploader("Upload File", type=["pdf", "jpg", "jpeg", "png"], key="file_uploader")
         
             if uploaded_file:
@@ -352,19 +357,19 @@ if current_page == "Admin Dashboard":
                     if uploaded_file.type.startswith("image/"):
                         st.image(uploaded_file, width=300)
                     else:
-                        st.write(f"PDF file: {uploaded_file.name}")
+                        st.write(f"Uploaded file: {uploaded_file.name}")
         
             # Submit button for file upload
             submitted = st.form_submit_button("Upload Student Data")
                        
             if submitted:
-                if not all([name, matric_number, session, program_type, class_level, uploaded_file]):
+                if not all([name, matric_number, session, program_type, class_level, semester, uploaded_file]):
                     st.error("Please fill all required fields")
                 else:
                     try:
                         file_path = save_student_file(
                             name, matric_number, session, 
-                            program_type, class_level, uploaded_file
+                            program_type, class_level, semester, uploaded_file
                         )
                         st.session_state.upload_success = True
                         st.session_state.file_path = file_path
@@ -420,11 +425,12 @@ if current_page == "Admin Dashboard":
                     st.caption(f"Session: {student['session']}")
                     st.caption(f"Program: {student['program']}")
                     st.caption(f"Class Level: {student['class_level']}")
+                    st.caption(f"Semester: {student['semester']}")
         
                 with col2:
                     if st.button(
                         "View Details" if not st.session_state[session_key] else "Hide Details",
-                        key=f"toggle_{student['matric']}"
+                        key=f"toggle_{student['matric']}_{student['session']}_{student['program']}_{student['class_level']}_{student['semester']}"
                     ):
                         st.session_state[session_key] = not st.session_state[session_key]
                         st.rerun()
