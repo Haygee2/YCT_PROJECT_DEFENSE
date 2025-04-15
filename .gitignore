@@ -41,8 +41,11 @@ Thumbs.db
 *~
 *.bak
 
-# Student data (sensitive)
+# Sensitive data
 students_data/
+admin_data/
+face_data/
+ai_uploaded_files/
 
 # Face recognition models
 *.dat
