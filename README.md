@@ -85,5 +85,4 @@ The enhanced version includes:
 MIT License
 
 ## 📧 Contact
-[adebowalegoodness688@gmail.com] | [github.com/Haygee2/YCT_PROJECT_DEFENSE]
-```
+[adebowalegoodness688@gmail.com] | [(https://github.com/Haygee2/YCT_PROJECT_DEFENSE)]
