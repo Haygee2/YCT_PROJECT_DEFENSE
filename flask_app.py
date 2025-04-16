@@ -195,12 +195,13 @@ def save_student_file(name, matric_number, session, program_type, class_level, s
     except Exception as e:
         raise Exception(f"Error saving file: {str(e)}")
 
-def search_students(search_term, search_by="name", program_type=None, class_level=None):
+def search_students(search_term, search_by="name", program_type=None, class_level=None, semester=None):
     """Search students with file validation"""
     results = []
     base_dir = os.path.abspath("students_data")
     
     if not os.path.exists(base_dir):
+        print("Base directory does not exist.")
         return results
     
     for session in os.listdir(base_dir):
@@ -217,15 +218,18 @@ def search_students(search_term, search_by="name", program_type=None, class_leve
                 continue
             
             for class_lvl in os.listdir(program_dir):
-                if class_lvl and class_lvl.lower() != class_lvl.lower():
+                if class_level and class_lvl.lower() != class_level.lower():
                     continue
                 
                 class_dir = os.path.join(program_dir, class_lvl)
                 if not os.path.isdir(class_dir):
                     continue
                 
-                for semester in os.listdir(class_dir):
-                    semester_dir = os.path.join(class_dir, semester)
+                for sem in os.listdir(class_dir):
+                    if semester and sem.lower() != semester.lower():
+                        continue
+
+                    semester_dir = os.path.join(class_dir, sem)
                     if not os.path.isdir(semester_dir):
                         continue
             
@@ -234,53 +238,56 @@ def search_students(search_term, search_by="name", program_type=None, class_leve
                         if not os.path.isdir(student_dir):
                             continue
                 
-                    try:
-                        parts = student_folder.rsplit("_", 1)
-                        if len(parts) != 2:
-                            continue
+                        try:
+                            parts = student_folder.rsplit("_", 1)
+                            if len(parts) != 2:
+                                continue
                             
-                        name = parts[0].replace("_", " ")
-                        last_3_matric = parts[1]
+                            name = parts[0].replace("_", " ")
+                            last_3_matric = parts[1]
+
+                            # Debugging: Print extracted details
+                            print(f"Checking studnet: {name}, Matric: {last_3_matric}, Session: {session}")
                         
-                        # Search matching
-                        match = False
-                        search_term = str(search_term).lower()
+                            # Search matching
+                            match = False
+                            search_term = str(search_term).lower()
                         
-                        if search_by == "name" and search_term in name.lower():
-                            match = True
-                        elif search_by == "matric" and search_term in last_3_matric:
-                            match = True
-                        elif search_by == "session" and search_term in session.lower():
-                            match = True
+                            if search_by == "name" and search_term in name.lower():
+                                match = True
+                            elif search_by == "matric" and search_term in last_3_matric:
+                                match = True
+                            elif search_by == "session" and search_term in session.lower():
+                                match = True
                             
-                        if match:
-                            valid_files = []
-                            for filename in os.listdir(student_dir):
-                                file_path = os.path.join(student_dir, filename)
-                                if os.path.isfile(file_path):
-                                    file_type = os.path.splitext(filename)[1].lower()
+                            if match:
+                                valid_files = []
+                                for filename in os.listdir(student_dir):
+                                    file_path = os.path.join(student_dir, filename)
+                                    if os.path.isfile(file_path):
+                                        file_type = os.path.splitext(filename)[1].lower()
                                     
-                                    if file_type in [".jpg", ".jpeg", ".png"] and not is_valid_image(file_path):
-                                        continue
+                                        if file_type in [".jpg", ".jpeg", ".png"] and not is_valid_image(file_path):
+                                            continue
                                         
-                                    valid_files.append({
-                                        "path": file_path,
-                                        "type": file_type
-                                    })
+                                        valid_files.append({
+                                            "path": file_path,
+                                            "type": file_type
+                                        })
                             
-                            results.append({
-                                "name": name,
-                                "matric": last_3_matric,
-                                "session": session,
-                                "program": program,
-                                "class_level": class_lvl,
-                                "semester": semester,
-                                "files": valid_files,
-                                "has_files": bool(valid_files)
-                            })
-                    except Exception as e:
-                        print(f"Error processing {student_folder}: {str(e)}")
-                        continue
+                                results.append({
+                                    "name": name,
+                                    "matric": last_3_matric,
+                                    "session": session,
+                                    "program": program,
+                                    "class_level": class_lvl,
+                                    "semester": semester,
+                                    "files": valid_files,
+                                    "has_files": bool(valid_files)
+                                })
+                        except Exception as e:
+                            print(f"Error processing {student_folder}: {str(e)}")
+                            continue
                         
     return results
 
@@ -304,7 +311,9 @@ def is_valid_image(filepath):
 init_db()
 
 if 'authenticated' not in st.session_state:
+    st.session_state.clear()
     st.session_state.authenticated = False
+    st.query_params["page"] = "Sign In"
 
 # Check query parameters to determine the current page
 query_params = st.query_params
@@ -327,9 +336,12 @@ if current_page == "Admin Dashboard":
     
         # Sign Out button
     if st.sidebar.button("Sign Out"):
-        st.session_state.authenticated = False
-        st.query_params["page"] = "Sign In"
-        st.rerun()
+        if st.sidebar.radio("Are you sure you want to sign out?", ("Yes", "No")) == "Yes":
+            st.session_state.clear()
+            st.session_state.authenticated = False
+            st.query_params.clear()
+            st.query_params["page"] = "Sign In"
+            st.rerun()
 
         # Admin Dashboard Pages
     if admin_page == "Upload Student Data":
@@ -412,56 +424,78 @@ if current_page == "Admin Dashboard":
                 st.session_state["search_results"] = results  # Store results in session state
 
         if "search_results" in st.session_state:
-            for student in st.session_state["search_results"]:
-            # Initialize session state if not exists
-                session_key = f"show_{student['matric']}"
-                if session_key not in st.session_state:
-                    st.session_state[session_key] = False
-
-                # Student header with toggle button
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.subheader(f"{student['name']} - {student['matric']}")
-                    st.caption(f"Session: {student['session']}")
-                    st.caption(f"Program: {student['program']}")
-                    st.caption(f"Class Level: {student['class_level']}")
-                    st.caption(f"Semester: {student['semester']}")
-        
-                with col2:
-                    if st.button(
-                        "View Details" if not st.session_state[session_key] else "Hide Details",
-                        key=f"toggle_{student['matric']}_{student['session']}_{student['program']}_{student['class_level']}_{student['semester']}"
-                    ):
-                        st.session_state[session_key] = not st.session_state[session_key]
-                        st.rerun()
-
-                if st.session_state[session_key]:
-                    st.markdown("---") # Separator
-                    st.write("Files:")
+            # Add page navigation
+            items_per_page = 10
+            total_pages = (len(st.session_state["search_results"]) + items_per_page - 1) // items_per_page
+            page = st.number_input("Page", min_value=1, max_value=total_pages, value=1)
             
-                    # Display each file with download option
-                    for file in student['files']:
-                        # Display file name and type
-                        file_name = os.path.basename(file['path'])
-                        file_type = file['type'].upper().replace(".", "")
-                        st.write(f"**{file_name}** ({file_type})")
+            start_idx = (page - 1) * items_per_page
+            end_idx = min(start_idx + items_per_page, len(st.session_state["search_results"]))
+
+            for idx in range(start_idx, end_idx):
+                student = st.session_state["search_results"][idx]
+                try:
+                    # ADDITIONAL CHECK: Ensure student has files before displaying
+                    required_fields = ['matric', 'session', 'program', 'class_level', 'semester']
+                    if not all(field in student for field in required_fields):
+                        st.warning(f"Skipping incomplete student record: {student.get('name', 'unknown')}")
+                        continue
+
+                    #Create a unique session key using all student identifiers
+                    session_key = f"show_{student['matric']}_{student['session']}_{student['program']}_{student['class_level']}_{student['semester']}"
+                    if session_key not in st.session_state:
+                        st.session_state[session_key] = False
+
+                    # Student header with toggle button
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.subheader(f"{student['name']} - {student['matric']}")
+                        st.caption(f"Session: {student['session']}")
+                        st.caption(f"Program: {student['program']}")
+                        st.caption(f"Class Level: {student['class_level']}")
+                        st.caption(f"Semester: {student['semester']}")
+        
+                    with col2:
+                        # Create a unique button key by including the index to avoid conflicts
+                        button_key = f"toggle_{idx}_{student['matric']}_{student['session']}_{student['program']}_{student['class_level']}_{student['semester']}"
+                        # Toggle button to show/hide file details
+                        if st.button(
+                            "View Details" if not st.session_state.get(session_key, False) else "Hide Details",
+                            key=button_key
+                        ):
+                            st.session_state[session_key] = not st.session_state[session_key]
+                            st.rerun()
+
+                    if st.session_state[session_key]:
+                        st.markdown("---") # Separator
+                        st.write("Files:")
+            
+                        # Display each file with download option
+                        for file_idx, file in enumerate(student['files']):
+                            # Display file name and type
+                            file_name = os.path.basename(file['path'])
+                            file_type = file['type'].upper().replace(".", "")
+                            st.write(f"**{file_name}** ({file_type})")
                 
-                        # Display content based on file type
-                        if file['type'] in [".jpg", ".jpeg", ".png"]:
-                            st.image(file['path'], width=1000)
-                        elif file['type'] == ".pdf":
-                            st.warning("PDF content cannot be displayed directly. Download to view.")
+                            # Display content based on file type
+                            if file['type'] in [".jpg", ".jpeg", ".png"]:
+                                st.image(file['path'], width=1000)
+                            elif file['type'] == ".pdf":
+                                st.warning("PDF content cannot be displayed directly. Download to view.")
                 
-                        # Download button
-                        with open(file['path'], "rb") as f:
-                            st.download_button(
-                                label="Download File",
-                                data=f.read(),
-                                file_name=file_name,
-                                key=f"dl_{file['path']}"
-                            )
+                            # Download button
+                            with open(file['path'], "rb") as f:
+                                st.download_button(
+                                    label="Download File",
+                                    data=f.read(),
+                                    file_name=file_name,
+                                    key=f"dl_{idx}_{file_idx}_{file['path']}"
+                                )
                 
-                        st.markdown("---") # File separator
+                            st.markdown("---") # File separator
+                except Exception as e:
+                    st.error(f"Error displaying student {student.get('name', 'unknown')}: {str(e)}")
+                    continue
                                         
 
 else:
